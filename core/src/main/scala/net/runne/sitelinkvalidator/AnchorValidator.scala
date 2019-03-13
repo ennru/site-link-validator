@@ -5,6 +5,7 @@ import java.nio.file.Path
 import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 
+import scala.collection.immutable
 import scala.util.matching.Regex
 
 object AnchorValidator {
@@ -40,32 +41,31 @@ object AnchorValidator {
           file,
           data.getOrElse(file, Anchors()).addRequested(origin -> anchor)))
 
-    def report(rootDir: Path, ignoreFilter: Regex): Unit = {
-      def report(relFile: String) =
-        ignoreFilter.findFirstMatchIn(relFile).isEmpty
-
-      data.foreach {
-        case (path, anchors) =>
+    def report(rootDir: Path, ignoreFilter: Regex, limit: Int = 5): immutable.Seq[String] = {
+      data
+        .map { case (path, anchors) =>
           val unseen = anchors.requested.map(_._2) -- anchors.seen
-          if (unseen.nonEmpty) {
-            val relFile = rootDir.relativize(path).toString
-            if (report(relFile)) {
-              println(s"Missing anchor in $relFile: ${unseen.mkString(", ")}")
-              anchors.requested
-                .filter {
-                  case (p, an) =>
-                    unseen.contains(an)
-                }
-                .take(5)
-                .foreach {
-                  case (p, an) =>
-                    println(
-                      s"  ${rootDir.relativize(p)} ${path.getFileName}#$an")
-                }
-            }
-          }
-      }
-
+          val relFile = rootDir.relativize(path).toString
+          (path, anchors, unseen, relFile)
+        }
+        .filter { case (path, anchors, unseen, relFile) =>
+          unseen.nonEmpty && ignoreFilter.findFirstMatchIn(relFile).isEmpty
+        }
+        .flatMap { case (path, anchors, unseen, relFile) =>
+          s"Missing anchor in $relFile: ${unseen.mkString(", ")}" ::
+            anchors.requested
+              .filter {
+                case (p, an) =>
+                  unseen.contains(an)
+              }
+              .take(limit)
+              .map {
+                case (p, an) =>
+                  s"  ${rootDir.relativize(p)} ${path.getFileName}#$an"
+              }
+              .toList
+        }
+        .toList
     }
   }
 

@@ -9,12 +9,12 @@ import akka.actor.typed.{ActorSystem, Behavior, Terminated}
 
 object Main extends App {
 
-//  require(args.length == 2, "expecting <dir> and <file> as arguments")
-//  val dir = Paths.get(args(0))
-//  val initialFile = args(1)
+  //  require(args.length == 2, "expecting <dir> and <file> as arguments")
+  //  val dir = Paths.get(args(0))
+  //  val initialFile = args(1)
 
-    val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
-    val initialFile = "docs/alpakka/snapshot/index.html"
+  val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
+  val initialFile = "docs/alpakka/snapshot/index.html"
   //  val dir = Paths.get("/Users/enno/dev/akka-docs-copy/main")
   //  val initialFile = "index.html"
 
@@ -23,7 +23,9 @@ object Main extends App {
   trait Messages
 
   case class UrlReport(summary: UrlTester.ReportSummary) extends Messages
+
   case class Report(summary: Reporter.ReportSummary) extends Messages
+
   case class AnchorReport(summary: AnchorValidator.Report) extends Messages
 
   def report(dir: Path, initialFile: String): Unit = {
@@ -63,7 +65,7 @@ object Main extends App {
             Behaviors.same
 
           case AnchorReport(report) =>
-            report.report(dir, ignoreFilter)
+            println(report.report(dir, ignoreFilter).mkString("\n"))
             Behaviors.same
         }
           .receiveSignal {
