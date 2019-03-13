@@ -16,7 +16,11 @@ object LinkCollector {
   def apply(reporter: ActorRef[Reporter.Messages],
             anchorCollector: ActorRef[AnchorValidator.Messages],
             urlTester: ActorRef[UrlTester.Messages]): Behavior[Messages] =
-    apply(reporter, anchorCollector, urlTester, outstanding = 0, seen = Set.empty)
+    apply(reporter,
+          anchorCollector,
+          urlTester,
+          outstanding = 0,
+          seen = Set.empty)
 
   private def apply(reporter: ActorRef[Reporter.Messages],
                     anchorCollector: ActorRef[AnchorValidator.Messages],
@@ -30,10 +34,18 @@ object LinkCollector {
           if (p.toFile.exists()) {
             if (!seen.contains(p)) {
               val reader =
-                context.spawnAnonymous(HtmlFileReader.reader(reporter, anchorCollector, urlTester, context.self))
-              val receiveCompletion = context.messageAdapter[HtmlFileReader.Completed.type](_ => FinishedFile)
+                context.spawnAnonymous(
+                  HtmlFileReader
+                    .reader(reporter, anchorCollector, urlTester, context.self))
+              val receiveCompletion =
+                context.messageAdapter[HtmlFileReader.Completed.type](_ =>
+                  FinishedFile)
               reader ! HtmlFileReader.FilePath(p, receiveCompletion)
-              apply(reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
+              apply(reporter,
+                    anchorCollector,
+                    urlTester,
+                    outstanding + 1,
+                    seen + p)
             } else {
               Behavior.same
             }
@@ -47,9 +59,6 @@ object LinkCollector {
 
         case FinishedFile =>
           apply(reporter, anchorCollector, urlTester, outstanding - 1, seen)
-
-        case _ =>
-          Behaviors.same
       }
     }
 }

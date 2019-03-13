@@ -2,7 +2,7 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.Path
 
-import akka.actor.typed.Behavior
+import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 
 import scala.util.matching.Regex
@@ -13,11 +13,13 @@ object AnchorValidator {
 
   final case class Anchor(dir: Path, anchor: String) extends Messages
 
-  final case class Link(origin: Path, target: Path, anchor: String) extends Messages
+  final case class Link(origin: Path, target: Path, anchor: String)
+    extends Messages
 
-  final case class Check(ignoreFilter: Regex) extends Messages
+  final case class RequestReport(replyTo: ActorRef[Report]) extends Messages
 
-  final case class Anchors(seen: Set[String] = Set.empty, requested: Set[(Path, String)] = Set.empty) {
+  final case class Anchors(seen: Set[String] = Set.empty,
+                           requested: Set[(Path, String)] = Set.empty) {
     def addSeen(name: String): Anchors =
       if (seen.contains(name)) this
       else Anchors(seen + name, requested)
@@ -29,9 +31,14 @@ object AnchorValidator {
 
   case class Report(data: Map[Path, Anchors] = Map.empty) {
     def addAnchor(file: Path, name: String): Report =
-      copy(data = data.updated(file, data.getOrElse(file, Anchors()).addSeen(name)))
+      copy(data =
+        data.updated(file, data.getOrElse(file, Anchors()).addSeen(name)))
+
     def addLink(origin: Path, file: Path, anchor: String): Report =
-      copy(data = data.updated(file, data.getOrElse(file, Anchors()).addRequested(origin -> anchor)))
+      copy(
+        data = data.updated(
+          file,
+          data.getOrElse(file, Anchors()).addRequested(origin -> anchor)))
 
     def report(rootDir: Path, ignoreFilter: Regex): Unit = {
       def report(relFile: String) =
@@ -52,7 +59,8 @@ object AnchorValidator {
                 .take(5)
                 .foreach {
                   case (p, an) =>
-                    println(s"  ${rootDir.relativize(p)} ${path.getFileName}#$an")
+                    println(
+                      s"  ${rootDir.relativize(p)} ${path.getFileName}#$an")
                 }
             }
           }
@@ -61,20 +69,20 @@ object AnchorValidator {
     }
   }
 
-  def apply(rootDir: Path, report: Report = Report()): Behavior[Messages] =
-    Behaviors.receive { (context, message) =>
-      message match {
-        case Anchor(file, name) if name.nonEmpty =>
-          apply(rootDir, report.addAnchor(file, name))
+  def apply(report: Report = Report()): Behavior[Messages] =
+    Behaviors.receiveMessage {
+      case Anchor(file, name) if name.nonEmpty =>
+        apply(report.addAnchor(file, name))
 
-        case Link(origin, file, anchor) if anchor.nonEmpty =>
-          apply(rootDir, report.addLink(origin, file, anchor))
+      case Link(origin, file, anchor) if anchor.nonEmpty =>
+        apply(report.addLink(origin, file, anchor))
 
-        case Check(ignoreFilter) =>
-          report.report(rootDir, ignoreFilter)
-          Behaviors.stopped
-        case _ =>
-          Behaviors.same
-      }
+      case RequestReport(replyTo) =>
+        replyTo ! report
+        Behaviors.stopped
+
+      case _ =>
+        Behaviors.same
     }
+
 }

@@ -13,39 +13,69 @@ object Main extends App {
 //  val dir = Paths.get(args(0))
 //  val initialFile = args(1)
 
-  val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
-  val initialFile = "docs/alpakka/snapshot/index.html"
+    val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
+    val initialFile = "docs/alpakka/snapshot/index.html"
+  //  val dir = Paths.get("/Users/enno/dev/akka-docs-copy/main")
+  //  val initialFile = "index.html"
 
   report(dir, initialFile)
+
+  trait Messages
+
+  case class UrlReport(summary: UrlTester.ReportSummary) extends Messages
+  case class Report(summary: Reporter.ReportSummary) extends Messages
+  case class AnchorReport(summary: AnchorValidator.Report) extends Messages
 
   def report(dir: Path, initialFile: String): Unit = {
     val file = dir.resolve(initialFile)
     val exists = file.toFile.exists()
-    require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
+    require(
+      exists,
+      s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
 
-    val main: Behavior[NotUsed] =
+    def main(): Behavior[Messages] =
       Behaviors.setup { context ⇒
         val ignoreFilter = "^(api/.*)".r
-        val reporter = context.spawn(Reporter(dir), "reporter")
+        val reporter = context.spawn(Reporter(), "reporter")
         context.watch(reporter)
-        val anchorCollector = context.spawn(AnchorValidator(dir), "anchorCollector")
+        val anchorCollector =
+          context.spawn(AnchorValidator(), "anchorCollector")
         context.watch(anchorCollector)
-        val urlTester = context.spawn(UrlTester(reporter), "urlTester")
+        val urlTester = context.spawn(UrlTester(), "urlTester")
         context.watch(urlTester)
-        val collector = context.spawn(LinkCollector(reporter, anchorCollector, urlTester), "collector")
+        val collector =
+          context.spawn(LinkCollector(reporter, anchorCollector, urlTester),
+            "collector")
         context.watch(collector)
 
         collector ! LinkCollector.FileLocation(dir, file)
         Behaviors
+          .receiveMessage[Messages] {
+          case UrlReport(summary) =>
+            print(summary.print().mkString("\n"))
+            urlTester ! UrlTester.Shutdown
+            Behaviors.same
+
+          case Report(reportSummary) =>
+            reportSummary.print(dir, ignoreFilter)
+            Behaviors.same
+
+          case AnchorReport(report) =>
+            report.report(dir, ignoreFilter)
+            Behaviors.same
+        }
           .receiveSignal {
             case (_, Terminated(`collector`)) =>
-              urlTester ! UrlTester.Shutdown
+              val replyTo = context.messageAdapter[UrlTester.ReportSummary](summary => UrlReport(summary))
+              urlTester ! UrlTester.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`urlTester`)) =>
-              reporter ! Reporter.Report(ignoreFilter)
+              val replyTo = context.messageAdapter[Reporter.ReportSummary](summary => Report(summary))
+              reporter ! Reporter.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`reporter`)) =>
-              anchorCollector ! AnchorValidator.Check(ignoreFilter)
+              val replyTo = context.messageAdapter[AnchorValidator.Report](summary => AnchorReport(summary))
+              anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`anchorCollector`)) =>
               Behaviors.stopped
@@ -53,6 +83,6 @@ object Main extends App {
       }
 
     val cld = getClass.getClassLoader
-    ActorSystem(main, "bld", BootstrapSetup().withClassloader(cld))
+    ActorSystem(main, "site-link-validator", BootstrapSetup().withClassloader(cld))
   }
 }
