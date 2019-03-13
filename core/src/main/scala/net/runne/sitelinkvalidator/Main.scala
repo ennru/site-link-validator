@@ -57,7 +57,9 @@ object Main extends App {
             Behaviors.same
 
           case Report(reportSummary) =>
-            reportSummary.print(dir, ignoreFilter)
+            println(reportSummary.errorReport(dir).mkString("\n"))
+            println(reportSummary.missingReport(dir, ignoreFilter).mkString("\n"))
+            println(reportSummary.urlFailureReport(dir).mkString("\n"))
             Behaviors.same
 
           case AnchorReport(report) =>

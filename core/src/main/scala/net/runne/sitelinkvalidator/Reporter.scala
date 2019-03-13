@@ -6,6 +6,7 @@ import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 import com.fasterxml.aalto.WFCException
 
+import scala.collection.immutable
 import scala.util.matching.Regex
 
 object Reporter {
@@ -37,46 +38,45 @@ object Reporter {
     def addUrlFailure(e: UrlFailed): ReportSummary =
       copy(urlFailures = urlFailures + e)
 
-    def print(rootDir: Path, ignoreFilter: Regex): Unit = {
-      def report(relFile: String) =
-        ignoreFilter.findFirstMatchIn(relFile).isEmpty
-
+    def errorReport(rootDir: Path): immutable.Seq[String] = {
       errors.toIndexedSeq
         .sortBy(_.file.toString)
-        .foreach {
+        .map {
           case FileErrored(file, e: WFCException) =>
             val relFile = rootDir.relativize(file).toString
-            if (report(relFile)) {
-              println(
-                s"ERROR $relFile L${e.getLocation.getLineNumber}:${e.getLocation.getColumnNumber} ${e.getMessage.replace("\n", " ")}"
-              )
-            }
+            s"ERROR $relFile L${e.getLocation.getLineNumber}:${e.getLocation.getColumnNumber} ${e.getMessage.replace("\n", " ")}"
+
           case FileErrored(file, e) =>
             val relFile = rootDir.relativize(file).toString
-            if (report(relFile)) {
-              println(s"ERROR $relFile $e")
-            }
+            s"ERROR $relFile $e"
         }
+    }
+
+    def missingReport(rootDir: Path, ignoreFilter: Regex): immutable.Seq[String] = {
       missing.toIndexedSeq
         .sortBy(_.file.toString)
-        .foreach { m =>
-          val relFile = rootDir.relativize(m.file).toString
-          if (report(relFile)) {
-            println(
-              s"MISSING $relFile (referenced from ${rootDir.relativize(m.origin)})")
-          }
+        .map { m =>
+          (rootDir.relativize(m.file).toString, m)
         }
+        .filter { case (relFile, m) =>
+          ignoreFilter.findFirstMatchIn(relFile).isEmpty
+        }
+        .map { case (relFile, m) =>
+          s"MISSING $relFile (referenced from ${rootDir.relativize(m.origin)})"
+        }
+    }
+
+    def urlFailureReport(rootDir: Path): immutable.Seq[String] = {
       urlFailures.toIndexedSeq
         .sortBy(_.url.toString)
-        .foreach { m =>
-          println(
-            s"URL failure ${m.responseCode} ${m.url} (referenced from ${
-              rootDir
-                .relativize(m.origin)
-            })")
+        .map { m =>
+          s"URL failure ${m.responseCode} ${m.url} (referenced from ${
+            rootDir
+              .relativize(m.origin)
+          })"
         }
-
     }
+
   }
 
   def apply(): Behavior[Messages] = apply(ReportSummary())
