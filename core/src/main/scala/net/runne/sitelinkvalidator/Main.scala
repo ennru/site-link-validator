@@ -1,11 +1,11 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{ Path, Paths }
 
 import akka.NotUsed
 import akka.actor.BootstrapSetup
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorSystem, Behavior, Terminated}
+import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
 
 object Main extends App {
 
@@ -13,10 +13,14 @@ object Main extends App {
   //  val dir = Paths.get(args(0))
   //  val initialFile = args(1)
 
-  val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
-  val initialFile = "docs/alpakka/snapshot/index.html"
+//  val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
+//  val initialFile = "docs/alpakka/snapshot/index.html"
+  val dir = Paths.get("/Users/enno/dev/alpakka-kafka/docs/target/site/")
+  val initialFile = "docs/alpakka-kafka/snapshot/index.html"
   //  val dir = Paths.get("/Users/enno/dev/akka-docs-copy/main")
   //  val initialFile = "index.html"
+//    val dir = Paths.get("/Users/enno/dev/akka-http-docs-copy/main")
+//    val initialFile = "index.html"
 
   report(dir, initialFile)
 
@@ -31,13 +35,13 @@ object Main extends App {
   def report(dir: Path, initialFile: String): Unit = {
     val file = dir.resolve(initialFile)
     val exists = file.toFile.exists()
-    require(
-      exists,
-      s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
+    require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
 
     def main(): Behavior[Messages] =
       Behaviors.setup { context ⇒
-        val ignoreFilter = "^(api/.*)".r
+        val ignoreFilter =
+//          """(.*/snapshot/java/lang/.*)|(^api/alpakka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka/snapshot/com(/.*)?/(com/google/.*))""".r
+          """(.*/snapshot/java/lang/.*)|(^api/alpakka-kafka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka-kafka/snapshot/com(/.*)?/(com/google/.*))""".r
         val reporter = context.spawn(Reporter(), "reporter")
         context.watch(reporter)
         val anchorCollector =
@@ -46,28 +50,27 @@ object Main extends App {
         val urlTester = context.spawn(UrlTester(), "urlTester")
         context.watch(urlTester)
         val collector =
-          context.spawn(LinkCollector(reporter, anchorCollector, urlTester),
-            "collector")
+          context.spawn(LinkCollector(reporter, anchorCollector, urlTester), "collector")
         context.watch(collector)
 
         collector ! LinkCollector.FileLocation(dir, file)
         Behaviors
           .receiveMessage[Messages] {
-          case UrlReport(summary) =>
-            print(summary.print().mkString("\n"))
-            urlTester ! UrlTester.Shutdown
-            Behaviors.same
+            case UrlReport(summary) =>
+              print(summary.print().mkString("\n"))
+              urlTester ! UrlTester.Shutdown
+              Behaviors.same
 
-          case Report(reportSummary) =>
-            println(reportSummary.errorReport(dir).mkString("\n"))
-            println(reportSummary.missingReport(dir, ignoreFilter).mkString("\n"))
-            println(reportSummary.urlFailureReport(dir).mkString("\n"))
-            Behaviors.same
+            case Report(reportSummary) =>
+              println(reportSummary.errorReport(dir).mkString("\n"))
+              println(reportSummary.missingReport(dir, ignoreFilter).mkString("\n"))
+              println(reportSummary.urlFailureReport(dir).mkString("\n"))
+              Behaviors.same
 
-          case AnchorReport(report) =>
-            println(report.report(dir, ignoreFilter).mkString("\n"))
-            Behaviors.same
-        }
+            case AnchorReport(report) =>
+              println(report.report(dir, ignoreFilter).mkString("\n"))
+              Behaviors.same
+          }
           .receiveSignal {
             case (_, Terminated(`collector`)) =>
               val replyTo = context.messageAdapter[UrlTester.ReportSummary](summary => UrlReport(summary))

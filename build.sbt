@@ -13,11 +13,11 @@ lazy val core = project
   .settings(
     name := "site-link-validator",
     libraryDependencies ++= Seq(
+      "org.jsoup" % "jsoup" % "1.13.1",
       "com.typesafe.akka" %% "akka-stream" % AkkaVersion,
       "com.typesafe.akka" %% "akka-stream-testkit" % AkkaVersion % Test,
       "com.typesafe.akka" %% "akka-stream-typed" % AkkaVersion,
       "com.typesafe.akka" %% "akka-actor-typed" % AkkaVersion,
-      "com.lightbend.akka" %% "akka-stream-alpakka-xml" % "1.0-M3",
       "com.typesafe.akka" %% "akka-slf4j" % AkkaVersion,
       "ch.qos.logback" % "logback-classic" % "1.2.3",
       "org.scalatest" %% "scalatest" % "3.0.6" % Test,

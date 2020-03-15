@@ -4,7 +4,7 @@ import java.net.HttpURLConnection
 import java.nio.file.Path
 
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorRef, Behavior, Terminated}
+import akka.actor.typed.{ ActorRef, Behavior, Terminated }
 
 object UrlTester {
   val urlTimeoutInt = 343
@@ -21,11 +21,13 @@ object UrlTester {
 
   case class ReportSummary(urlCounters: Map[String, Int] = Map.empty) {
     def count(url: String): ReportSummary =
-      urlCounters.get(url).fold {
-        ReportSummary(urlCounters.updated(url, 1))
-      }{ value =>
-        ReportSummary(urlCounters.updated(url, value + 1))
-      }
+      urlCounters
+        .get(url)
+        .fold {
+          ReportSummary(urlCounters.updated(url, 1))
+        } { value =>
+          ReportSummary(urlCounters.updated(url, value + 1))
+        }
 
     def print(limit: Int = 30): Seq[String] =
       urlCounters.toSeq.sortBy(-_._2).take(limit).map {
@@ -36,8 +38,10 @@ object UrlTester {
   def apply(): Behavior[Messages] =
     apply(ReportSummary(), running = 0, None)
 
-  private def apply(reportSummary: ReportSummary,
-                    running: Int, reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
+  private def apply(
+      reportSummary: ReportSummary,
+      running: Int,
+      reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
     Behaviors
       .receive[Messages] { (context, message) =>
         message match {
@@ -52,7 +56,7 @@ object UrlTester {
             replyTo ! reportSummary
             Behavior.same
 
-          case RequestReport(replyTo)  =>
+          case RequestReport(replyTo) =>
             apply(reportSummary, running, Some(replyTo))
 
           case Shutdown if running == 0 =>
@@ -71,13 +75,12 @@ object UrlTester {
       }
 
   private def shuttingDown(running: Int): Behavior[Messages] =
-    Behaviors
-      .receiveSignal {
-        case (_, Terminated(_)) if running == 1 =>
-          Behaviors.stopped
-        case (_, Terminated(_)) =>
-          shuttingDown(running - 1)
-      }
+    Behaviors.receiveSignal {
+      case (_, Terminated(_)) if running == 1 =>
+        Behaviors.stopped
+      case (_, Terminated(_)) =>
+        shuttingDown(running - 1)
+    }
 
   object UrlTestWorker {
     val urlTimeoutInt = 3000
