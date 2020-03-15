@@ -5,8 +5,8 @@ import java.nio.file.{ Path, Paths }
 import akka.Done
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
+import akka.stream.{ Materializer, SystemMaterializer }
 import akka.stream.scaladsl.{ Sink, Source }
-import akka.stream.typed.scaladsl.ActorMaterializer
 import org.jsoup.Jsoup
 
 import scala.collection.immutable
@@ -60,7 +60,7 @@ object HtmlFileReader {
       (context, message) =>
         message match {
           case FilePath(file, replyTo) =>
-            implicit val mat = ActorMaterializer()(context.system)
+            implicit val mat: Materializer = SystemMaterializer(context.system).materializer
             val document = Jsoup.parse(file.toFile, "UTF-8", "/")
             val links = document.select("a[href]")
             val fileReader: Future[Done] =
@@ -82,7 +82,8 @@ object HtmlFileReader {
                           (prefix, path)
                       }
                       .fold {
-                        urlTester ! UrlTester.Url(file, link)
+                        val (path, _) = splitLinkAnchor(link)
+                        urlTester ! UrlTester.Url(file, path)
                       } {
                         case (prefix, path) =>
                           val patchedLink = link.substring(prefix.length)

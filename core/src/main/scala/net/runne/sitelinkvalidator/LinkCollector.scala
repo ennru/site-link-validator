@@ -38,7 +38,7 @@ object LinkCollector {
               reader ! HtmlFileReader.FilePath(p, receiveCompletion)
               apply(reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
             } else {
-              Behavior.same
+              Behaviors.same
             }
           } else {
             reporter ! Reporter.Missing(origin, p)

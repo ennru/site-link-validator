@@ -1,6 +1,6 @@
 import sbt._
 
-val AkkaVersion = "2.5.21"
+val AkkaVersion = "2.6.4"
 
 lazy val `site-link-validator` = project
   .in(file("."))
