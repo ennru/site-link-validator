@@ -19,8 +19,7 @@ lazy val core = project
       "com.typesafe.akka" %% "akka-stream-typed" % AkkaVersion,
       "com.typesafe.akka" %% "akka-actor-typed" % AkkaVersion,
       "com.typesafe.akka" %% "akka-slf4j" % AkkaVersion,
-      "ch.qos.logback" % "logback-classic" % "1.2.3",
-      "org.scalatest" %% "scalatest" % "3.0.6" % Test,
+      "ch.qos.logback" % "logback-classic" % "1.2.3"
     )
   )
 
@@ -49,7 +48,7 @@ inThisBuild(
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
     scalafmtOnCompile := true,
     testOptions in Test += Tests.Argument("-oDF"),
-    scalaVersion := "2.12.8",
+    scalaVersion := "2.13.1",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",

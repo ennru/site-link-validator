@@ -32,11 +32,10 @@ object HtmlFileReader {
 
   final case class Anchor(s: String) extends FoundData
 
-  val linkMappings: Map[String, String] = Map(
-    //    "../../../../../../../api/" -> "/Users/enno/dev/alpakka-kafka/docs/target/site/api/"
-  )
+  case class Config(rootDir: Path, linkMappings: Map[String, String], ignorePrefixes: Seq[String])
 
   def reader(
+      config: Config,
       reporter: ActorRef[Reporter.Messages],
       anchorValidator: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages],
@@ -46,7 +45,7 @@ object HtmlFileReader {
         val (path, anchor) = splitLinkAnchor(link)
         if (path.nonEmpty) {
           val f =
-            if (path.startsWith("/")) Paths.get("/Users/enno/dev/alpakka-kafka/docs/target/site/").resolve(path.drop(1))
+            if (path.startsWith("/")) config.rootDir.resolve(path.drop(1))
             else file.getParent.resolve(path).normalize
           linkCollector ! LinkCollector.FileLocation(file, f)
           if (anchor.nonEmpty) {
@@ -75,8 +74,8 @@ object HtmlFileReader {
                   }
                 }
                 .runWith(Sink.foreach {
-                  case AbsoluteLink(link) =>
-                    linkMappings
+                  case AbsoluteLink(link) if config.ignorePrefixes.forall(prefix => !link.startsWith(prefix)) =>
+                    config.linkMappings
                       .collectFirst {
                         case (prefix, path) if link.startsWith(prefix) =>
                           (prefix, path)
@@ -89,8 +88,10 @@ object HtmlFileReader {
                           val patchedLink = link.substring(prefix.length)
                           checkLocalLink(file, path + patchedLink)
                       }
+
+                  case AbsoluteLink(link) =>
                   case Link(link) if (link.contains(".html")) =>
-                    linkMappings
+                    config.linkMappings
                       .collectFirst {
                         case (prefix, path) if link.startsWith(prefix) =>
                           (prefix, path)

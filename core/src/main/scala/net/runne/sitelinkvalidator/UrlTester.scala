@@ -4,7 +4,7 @@ import java.net.HttpURLConnection
 import java.nio.file.Path
 
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorRef, Behavior, Terminated}
+import akka.actor.typed.{ ActorRef, Behavior, Terminated }
 
 object UrlTester {
   val urlTimeoutInt = 343
@@ -41,14 +41,17 @@ object UrlTester {
     def print(limit: Int = 30): Seq[String] = {
       urlCounters.toSeq.sortBy(-_._2).take(limit).map {
         case (url, count) => s"$count links to $url status ${status.get(url)}"
-      }
-      status.filter{
-        case (url, status) if status != 200 => true
-        case _ => false
-      }.toList.sortBy(t => (t._2, t._1))
-      .map {
-        case (url, status) => s"$url status ${status}"
-      }
+      } ++
+      status
+        .filter {
+          case (url, status) if status != 200 => true
+          case _                              => false
+        }
+        .toList
+        .sortBy(t => (t._2, t._1))
+        .map {
+          case (url, status) => s"$url status ${status}"
+        }
 
     }
   }
@@ -57,22 +60,22 @@ object UrlTester {
     apply(ReportSummary(), running = 0, None)
 
   private def apply(
-                     reportSummary: ReportSummary,
-                     running: Int,
-                     reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
+      reportSummary: ReportSummary,
+      running: Int,
+      reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
     Behaviors
       .receive[Messages] { (context, message) =>
         message match {
           case Url(origin, url) =>
             val nowRunning =
-            if (!reportSummary.contains(url)) {
-              val worker = context.spawnAnonymous(UrlTestWorker(context.self))
-              worker ! UrlTestWorker.Url(origin, url)
-              running + 1
-            } else running
+              if (!reportSummary.contains(url)) {
+                val worker = context.spawnAnonymous(UrlTestWorker(context.self))
+                worker ! UrlTestWorker.Url(origin, url)
+                running + 1
+              } else running
             apply(reportSummary.count(url), nowRunning, reportTo)
 
-          case msg: UrlResult  =>
+          case msg: UrlResult =>
             val summary = reportSummary.testResult(msg)
             if (running == 1) {
               reportTo.foreach(ref => ref ! summary)
@@ -122,14 +125,6 @@ object UrlTester {
         message match {
           case Url(origin, url) =>
             reporter ! UrlTester.UrlResult(url, connectTo(url), origin)
-            //            match {
-            //              case HttpOk =>
-            //                reporter ! UrlTester.UrlResult(url, HttpOk)
-            //              case HttpRedirect =>
-            //                reporter ! Reporter.UrlRedirect(url)
-            //              case other =>
-            //                reporter ! Reporter.UrlFailed(origin, url, other)
-            //            }
             Behaviors.stopped
         }
       }
@@ -141,9 +136,7 @@ object UrlTester {
         conn.setRequestMethod("HEAD")
         conn.setConnectTimeout(timeout)
         conn.setReadTimeout(timeout)
-        val code = conn.getResponseCode
-        println(s"connectTo $url -> $code")
-        code
+        conn.getResponseCode
       } catch {
         case e: sun.security.validator.ValidatorException =>
           -1

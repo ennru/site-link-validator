@@ -2,27 +2,39 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.{ Path, Paths }
 
-import akka.NotUsed
 import akka.actor.BootstrapSetup
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
+import com.typesafe.config.ConfigFactory
+import scala.jdk.CollectionConverters._
 
 object Main extends App {
 
-  //  require(args.length == 2, "expecting <dir> and <file> as arguments")
-  //  val dir = Paths.get(args(0))
-  //  val initialFile = args(1)
+  val config = ConfigFactory.load().getConfig("site-link-validator")
 
-//  val dir = Paths.get("/Users/enno/dev/alpakka/docs/target/site/")
-//  val initialFile = "docs/alpakka/snapshot/index.html"
-  val dir = Paths.get("/Users/enno/dev/alpakka-kafka/docs/target/site/")
-  val initialFile = "docs/alpakka-kafka/snapshot/index.html"
-  //  val dir = Paths.get("/Users/enno/dev/akka-docs-copy/main")
-  //  val initialFile = "index.html"
-//    val dir = Paths.get("/Users/enno/dev/akka-http-docs-copy/main")
-//    val initialFile = "index.html"
+  val rootDir = {
+    val dirStr = config.getString("root-dir")
+    val dir = Paths.get(dirStr)
+    val f = dir.toFile
+    require(f.exists() && f.isDirectory, s"The `root-dir` must be an existing directory (was [$dirStr])")
+    dir
+  }
+  val startFile = {
+    val fStr = config.getString("start-file")
+    val startFilePath = rootDir.resolve(fStr)
+    require(startFilePath.toFile.exists(), s"The `start-file` must exist (was [${startFilePath.toString}])")
+    fStr
+  }
 
-  report(dir, initialFile)
+  val htmlFileReaderConfig = {
+    val mappings = config.getConfigList("link-mappings").asScala.toList
+    val linkMappings = mappings.map { c =>
+      c.getString("prefix") -> c.getString("replace")
+    }.toMap
+    HtmlFileReader.Config(rootDir, linkMappings, config.getStringList("ignore-prefixes").asScala.toList)
+  }
+
+  report(rootDir, startFile)
 
   trait Messages
 
@@ -40,17 +52,16 @@ object Main extends App {
     def main(): Behavior[Messages] =
       Behaviors.setup { context ⇒
         val ignoreFilter =
-//          """(.*/snapshot/java/lang/.*)|(^api/alpakka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka/snapshot/com(/.*)?/(com/google/.*))""".r
+          //          """(.*/snapshot/java/lang/.*)|(^api/alpakka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka/snapshot/com(/.*)?/(com/google/.*))""".r
           """(.*/snapshot/java/lang/.*)|(^api/alpakka-kafka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka-kafka/snapshot/com(/.*)?/(com/google/.*))""".r
         val reporter = context.spawn(Reporter(), "reporter")
         context.watch(reporter)
-        val anchorCollector =
-          context.spawn(AnchorValidator(), "anchorCollector")
+        val anchorCollector = context.spawn(AnchorValidator(), "anchorCollector")
         context.watch(anchorCollector)
         val urlTester = context.spawn(UrlTester(), "urlTester")
         context.watch(urlTester)
         val collector =
-          context.spawn(LinkCollector(reporter, anchorCollector, urlTester), "collector")
+          context.spawn(LinkCollector(htmlFileReaderConfig, reporter, anchorCollector, urlTester), "collector")
         context.watch(collector)
 
         collector ! LinkCollector.FileLocation(dir, file)

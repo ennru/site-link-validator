@@ -14,12 +14,14 @@ object LinkCollector {
   case object FinishedFile extends Messages
 
   def apply(
+      htmlFileReaderConfig: HtmlFileReader.Config,
       reporter: ActorRef[Reporter.Messages],
       anchorCollector: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages]): Behavior[Messages] =
-    apply(reporter, anchorCollector, urlTester, outstanding = 0, seen = Set.empty)
+    apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding = 0, seen = Set.empty)
 
   private def apply(
+      htmlFileReaderConfig: HtmlFileReader.Config,
       reporter: ActorRef[Reporter.Messages],
       anchorCollector: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages],
@@ -32,24 +34,25 @@ object LinkCollector {
           if (p.toFile.exists()) {
             if (!seen.contains(p)) {
               val reader =
-                context.spawnAnonymous(HtmlFileReader.reader(reporter, anchorCollector, urlTester, context.self))
+                context.spawnAnonymous(
+                  HtmlFileReader.reader(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self))
               val receiveCompletion =
                 context.messageAdapter[HtmlFileReader.Completed.type](_ => FinishedFile)
               reader ! HtmlFileReader.FilePath(p, receiveCompletion)
-              apply(reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
+              apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
             } else {
               Behaviors.same
             }
           } else {
             reporter ! Reporter.Missing(origin, p)
-            apply(reporter, anchorCollector, urlTester, outstanding, seen + p)
+            apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding, seen + p)
           }
 
         case FinishedFile if outstanding == 1 =>
           Behaviors.stopped
 
         case FinishedFile =>
-          apply(reporter, anchorCollector, urlTester, outstanding - 1, seen)
+          apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding - 1, seen)
       }
     }
 }
