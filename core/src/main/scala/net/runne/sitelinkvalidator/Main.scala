@@ -68,7 +68,7 @@ object Main extends App {
         Behaviors
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
-              print(summary.print().mkString("\n"))
+              print(summary.print(rootDir).mkString("\n"))
               urlTester ! UrlTester.Shutdown
               Behaviors.same
 

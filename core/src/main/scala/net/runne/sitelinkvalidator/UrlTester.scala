@@ -22,37 +22,51 @@ object UrlTester {
 
   object Completed
 
-  case class ReportSummary(urlCounters: Map[String, Int] = Map.empty, status: Map[String, Int] = Map.empty) {
+  case class ReportSummary(urlCounters: Map[String, Set[Path]] = Map.empty, status: Map[String, Int] = Map.empty) {
     def contains(url: String) = urlCounters.keySet.contains(url)
 
-    def count(url: String): ReportSummary =
-      urlCounters
-        .get(url)
-        .fold {
-          copy(urlCounters = urlCounters.updated(url, 1))
-        } { value =>
-          copy(urlCounters = urlCounters.updated(url, value + 1))
-        }
+    def count(url: String, referringFile: Path): ReportSummary = {
+      val files = urlCounters.getOrElse(url, Set.empty)
+      copy(urlCounters = urlCounters.updated(url, files + referringFile))
+    }
 
     def testResult(res: UrlResult): ReportSummary = {
       copy(status = status.updated(res.url, res.status))
     }
 
-    def print(limit: Int = 30): Seq[String] = {
-      urlCounters.toSeq.sortBy(-_._2).take(limit).map {
-        case (url, count) => s"$count links to $url status ${status.get(url)}"
+    def print(rootDir: Path, limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
+      Seq("## Top linked pages") ++
+      topPages(limit).flatMap {
+        case (files, url, status) =>
+          Seq(s"${files.size} links to $url status ${status.map(_.toString).getOrElse("")}") ++ {
+            if (status.contains(HttpOk)) Seq()
+            else files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
+          }
       } ++
+      Seq("", "## Non-HTTP OK pages") ++ nonOkPages.map {
+        case (url, status) => s"$url status ${status}"
+      } ++
+      Seq("", "## Non-https pages") ++
+      urlCounters.toSeq.filter { case (url, files) => url.startsWith("http://") }.flatMap {
+        case (url, files) =>
+          Seq(s"$url") ++ files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
+      }
+    }
+
+    private def nonOkPages = {
       status
         .filter {
-          case (url, status) if status != 200 => true
-          case _                              => false
+          case (url, status) if status != HttpOk => true
+          case _                                 => false
         }
         .toList
         .sortBy(t => (t._2, t._1))
-        .map {
-          case (url, status) => s"$url status ${status}"
-        }
+    }
 
+    private def topPages(limit: Int) = {
+      urlCounters.toSeq.sortBy(-_._2.size).take(limit).map {
+        case (url, files) => (files, url, status.get(url))
+      }
     }
   }
 
@@ -73,7 +87,7 @@ object UrlTester {
                 worker ! UrlTestWorker.Url(origin, url)
                 running + 1
               } else running
-            apply(reportSummary.count(url), nowRunning, reportTo)
+            apply(reportSummary.count(url, origin), nowRunning, reportTo)
 
           case msg: UrlResult =>
             val summary = reportSummary.testResult(msg)
