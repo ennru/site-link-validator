@@ -41,23 +41,28 @@ object UrlTester {
         case (files, url, status) =>
           Seq(s"${files.size} links to $url status ${status.map(_.toString).getOrElse("")}") ++ {
             if (status.contains(HttpOk)) Seq()
-            else files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
+            else listFiles(files, rootDir, filesPerUrl)
           }
       } ++
       Seq("", "## Non-HTTP OK pages") ++
-      nonOkPages.map {
-        case (url, status) => s"$url status ${status}"
+      nonOkPages.flatMap {
+        case (url, status, files) =>
+          Seq(s"$url status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Redirected URLs") ++
-      redirectPages ++
+      redirectPages.flatMap {
+        case (url, files) =>
+          Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
+      } ++
       Seq("", "## Non-https pages") ++
       urlCounters.toSeq
         .filter {
           case (url, files) => url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
         }
+        .sortBy(_._1)
         .flatMap {
           case (url, files) =>
-            Seq(s"$url") ++ files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
+            Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
         }
     }
 
@@ -69,6 +74,10 @@ object UrlTester {
         }
         .toList
         .sortBy(t => (t._2, t._1))
+        .map {
+          case (url, status) =>
+            (url, status, urlCounters.getOrElse(url, Set.empty))
+        }
     }
 
     private def redirectPages = {
@@ -79,7 +88,13 @@ object UrlTester {
         }
         .keys
         .toList
+        .map { url =>
+          url -> urlCounters.getOrElse(url, Set.empty)
+        }
     }
+
+    private def listFiles(f: Set[Path], rootDir: Path, filesPerUrl: Int) =
+      f.toSeq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString)
 
     private def topPages(limit: Int) = {
       urlCounters.toSeq.sortBy(-_._2.size).take(limit).map {
