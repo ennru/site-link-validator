@@ -34,6 +34,8 @@ object Main extends App {
     HtmlFileReader.Config(rootDir, linkMappings, config.getStringList("ignore-prefixes").asScala.toList)
   }
 
+  val nonHttpsWhitelist = config.getStringList("non-https-whitelist").asScala.toSeq
+
   report(rootDir, startFile)
 
   trait Messages
@@ -50,7 +52,7 @@ object Main extends App {
     require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
 
     def main(): Behavior[Messages] =
-      Behaviors.setup { context ⇒
+      Behaviors.setup { context =>
         val ignoreFilter =
           //          """(.*/snapshot/java/lang/.*)|(^api/alpakka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka/snapshot/com(/.*)?/(com/google/.*))""".r
           """(.*/snapshot/java/lang/.*)|(^api/alpakka-kafka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka-kafka/snapshot/com(/.*)?/(com/google/.*))""".r
@@ -68,7 +70,7 @@ object Main extends App {
         Behaviors
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
-              print(summary.print(rootDir).mkString("\n"))
+              print(summary.print(rootDir, nonHttpsWhitelist).mkString("\n"))
               urlTester ! UrlTester.Shutdown
               Behaviors.same
 

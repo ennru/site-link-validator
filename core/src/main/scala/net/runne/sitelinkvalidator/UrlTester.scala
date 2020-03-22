@@ -9,6 +9,7 @@ import akka.actor.typed.{ ActorRef, Behavior, Terminated }
 object UrlTester {
   val urlTimeoutInt = 343
   private[this] val HttpOk = 200
+  private[this] val HttpRedirect = 301
 
   sealed trait Messages
 
@@ -34,7 +35,7 @@ object UrlTester {
       copy(status = status.updated(res.url, res.status))
     }
 
-    def print(rootDir: Path, limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
+    def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
       Seq("## Top linked pages") ++
       topPages(limit).flatMap {
         case (files, url, status) =>
@@ -43,14 +44,21 @@ object UrlTester {
             else files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
           }
       } ++
-      Seq("", "## Non-HTTP OK pages") ++ nonOkPages.map {
+      Seq("", "## Non-HTTP OK pages") ++
+      nonOkPages.map {
         case (url, status) => s"$url status ${status}"
       } ++
+      Seq("", "## Redirected URLs") ++
+      redirectPages ++
       Seq("", "## Non-https pages") ++
-      urlCounters.toSeq.filter { case (url, files) => url.startsWith("http://") }.flatMap {
-        case (url, files) =>
-          Seq(s"$url") ++ files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
-      }
+      urlCounters.toSeq
+        .filter {
+          case (url, files) => url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
+        }
+        .flatMap {
+          case (url, files) =>
+            Seq(s"$url") ++ files.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString)
+        }
     }
 
     private def nonOkPages = {
@@ -61,6 +69,16 @@ object UrlTester {
         }
         .toList
         .sortBy(t => (t._2, t._1))
+    }
+
+    private def redirectPages = {
+      status
+        .filter {
+          case (url, status) if status == HttpRedirect => true
+          case _                                       => false
+        }
+        .keys
+        .toList
     }
 
     private def topPages(limit: Int) = {
@@ -127,8 +145,6 @@ object UrlTester {
 
   object UrlTestWorker {
     val urlTimeoutInt = 3000
-    private[this] val HttpOk = 200
-    private[this] val HttpRedirect = 301
 
     sealed trait Messages
 

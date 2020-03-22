@@ -1,17 +1,17 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.{ Path, Paths }
+import java.nio.file.Path
 
 import akka.Done
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
-import akka.stream.{ Materializer, SystemMaterializer }
 import akka.stream.scaladsl.{ Sink, Source }
+import akka.stream.{ Materializer, SystemMaterializer }
 import org.jsoup.Jsoup
 
 import scala.collection.immutable
-import scala.collection.JavaConverters._
 import scala.concurrent.Future
+import scala.jdk.CollectionConverters._
 import scala.util.{ Failure, Success }
 
 object HtmlFileReader {
