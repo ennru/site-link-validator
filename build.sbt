@@ -57,7 +57,6 @@ inThisBuild(
       "-deprecation",
       "-Xlint",
       "-Ywarn-dead-code",
-      "-Xfuture",
       "-target:jvm-1.8"
     )
   )

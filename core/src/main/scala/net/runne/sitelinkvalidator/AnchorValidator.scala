@@ -23,9 +23,12 @@ object AnchorValidator {
       if (seen.contains(name)) this
       else Anchors(seen + name, requested)
 
-    def addRequested(pathAnchor: (Path, String)): Anchors =
-      if (requested.contains(pathAnchor)) this
-      else Anchors(seen, requested + pathAnchor)
+    def addRequested(pathAnchor: (Path, String)): Anchors = {
+      val anchor = pathAnchor._2.replaceAll("=%3E", "=>")
+      val patchedPathAnchor = pathAnchor._1 -> anchor
+      if (requested.contains(patchedPathAnchor)) this
+      else Anchors(seen, requested + patchedPathAnchor)
+    }
   }
 
   case class Report(data: Map[Path, Anchors] = Map.empty) {
@@ -36,6 +39,7 @@ object AnchorValidator {
       copy(data = data.updated(file, data.getOrElse(file, Anchors()).addRequested(origin -> anchor)))
 
     def report(rootDir: Path, ignoreFilter: Regex, limit: Int = 5): immutable.Seq[String] = {
+      Seq("## Anchors") ++
       data
         .map {
           case (path, anchors) =>
@@ -49,8 +53,11 @@ object AnchorValidator {
         }
         .flatMap {
           case (path, anchors, unseen, relFile) =>
-            s"Missing anchor in $relFile: ${unseen.mkString(", ")}" ::
-            s"seen ${anchors.seen.mkString(", ")}" ::
+            Seq(relFile.toString, "requested") ++
+            unseen.map(a => s" - $a") ++
+            Seq("seen") ++
+            anchors.seen.map(a => s" - $a") ++
+            Seq("requested in") ++
             anchors.requested
               .filter {
                 case (p, an) =>
@@ -59,11 +66,9 @@ object AnchorValidator {
               .take(limit)
               .map {
                 case (p, an) =>
-                  s"  ${rootDir.relativize(p)} ${path.getFileName}#$an"
+                  s" - ${rootDir.relativize(p)} ${path.getFileName}#$an"
               }
-              .toList
         }
-        .toList
     }
   }
 
