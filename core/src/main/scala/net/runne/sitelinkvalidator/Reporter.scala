@@ -37,27 +37,27 @@ object Reporter {
     def addUrlFailure(e: UrlFailed): ReportSummary =
       copy(urlFailures = urlFailures + e)
 
-    def errorReport(rootDir: Path): immutable.Seq[String] = {
-      errors.toIndexedSeq.sortBy(_.file.toString).map {
+    def errorReport(rootDir: Path): Seq[(String, Throwable)] = {
+      errors.toSeq.sortBy(_.file.toString).map {
         case FileErrored(file, e) =>
           val relFile = rootDir.relativize(file).toString
-          s"ERROR $relFile $e"
+          relFile -> e
       }
     }
 
-    def missingReport(rootDir: Path, ignoreFilter: Regex): immutable.Seq[String] = {
+    def missingReport(rootDir: Path, ignoreFilter: Regex): Seq[(String, Path)] = {
       missing.toIndexedSeq
         .sortBy(_.file.toString)
-        .map { m =>
-          (rootDir.relativize(m.file).toString, m)
+        .map { missing =>
+          (rootDir.relativize(missing.file).toString, missing)
         }
         .filter {
           case (relFile, m) =>
             ignoreFilter.findFirstMatchIn(relFile).isEmpty
         }
         .map {
-          case (relFile, m) =>
-            s"MISSING $relFile (referenced from ${rootDir.relativize(m.origin)})"
+          case (relFile, missing) =>
+            relFile -> rootDir.relativize(missing.origin)
         }
     }
 
