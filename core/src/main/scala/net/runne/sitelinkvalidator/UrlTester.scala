@@ -3,8 +3,18 @@ package net.runne.sitelinkvalidator
 import java.net.HttpURLConnection
 import java.nio.file.Path
 
+import akka.Done
+import akka.actor.CoordinatedShutdown
 import akka.actor.typed.scaladsl.Behaviors
+import akka.pattern.pipe
 import akka.actor.typed.{ ActorRef, Behavior, Terminated }
+import akka.dispatch.ExecutionContexts
+import akka.http.scaladsl.{ Http, HttpExt }
+import akka.http.scaladsl.model.{ HttpMethod, HttpMethods, HttpRequest, HttpResponse }
+import akka.stream.SystemMaterializer
+
+import scala.concurrent.ExecutionContext
+import scala.util.{ Failure, Success, Try }
 
 object UrlTester {
   val urlTimeoutInt = 343
@@ -16,6 +26,8 @@ object UrlTester {
   final case class Url(origin: Path, url: String) extends Messages
 
   final case class UrlResult(url: String, status: Int, referrer: Path) extends Messages
+
+  final case class UrlError(url: String, e: Throwable, referrer: Path) extends Messages
 
   final case class RequestReport(replyTo: ActorRef[ReportSummary]) extends Messages
 
@@ -103,91 +115,76 @@ object UrlTester {
     }
   }
 
-  def apply(): Behavior[Messages] =
-    apply(ReportSummary(), running = 0, None)
+  def apply(): Behavior[Messages] = {
+    Behaviors.setup { context =>
+      CoordinatedShutdown(context.system)
+        .addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "shut-down-client-http-pool") { () =>
+          Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
+        }
+      apply(ReportSummary(), running = 0, None)
+    }
+  }
 
   private def apply(
       reportSummary: ReportSummary,
       running: Int,
       reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
-    Behaviors
-      .receive[Messages] { (context, message) =>
-        message match {
-          case Url(origin, url) =>
-            val nowRunning =
-              if (!reportSummary.contains(url)) {
-                val worker = context.spawnAnonymous(UrlTestWorker(context.self))
-                worker ! UrlTestWorker.Url(origin, url)
-                running + 1
-              } else running
-            apply(reportSummary.count(url, origin), nowRunning, reportTo)
+    Behaviors.receive[Messages] { (context, message) =>
+      message match {
+        case Url(origin, url) =>
+          val nowRunning =
+            if (!reportSummary.contains(url)) {
+              val request = HttpRequest(HttpMethods.HEAD, url)
+              val response = Http(context.system).singleRequest(request)
+              context.pipeToSelf(response) {
+                case Success(res) =>
+                  res.entity.discardBytes(SystemMaterializer(context.system).materializer)
+                  UrlResult(url, res.status.intValue(), origin)
+                case Failure(res) =>
+                  UrlError(url, res, origin)
+              }
+              running + 1
+            } else running
+          apply(reportSummary.count(url, origin), nowRunning, reportTo)
 
-          case msg: UrlResult =>
-            val summary = reportSummary.testResult(msg)
-            if (running == 1) {
-              reportTo.foreach(ref => ref ! summary)
-            }
-            apply(summary, running - 1, reportTo)
+        case msg: UrlResult =>
+          val summary = reportSummary.testResult(msg)
+          if (running == 1) {
+            reportTo.foreach(ref => ref ! summary)
+          }
+          apply(summary, running - 1, reportTo)
 
-          case RequestReport(replyTo) if running == 0 =>
-            replyTo ! reportSummary
-            Behaviors.same
-
-          case RequestReport(replyTo) =>
-            apply(reportSummary, running, Some(replyTo))
-
-          case Shutdown if running == 0 =>
-            Behaviors.stopped
-
-          case Shutdown =>
-            shuttingDown(running)
-        }
-      }
-      .receiveSignal {
-        case (_, Terminated(_)) if running == 1 =>
-          apply(reportSummary, running - 1, None)
-        case (_, Terminated(_)) =>
+        case msg: UrlError =>
+          if (running == 1) {
+            reportTo.foreach(ref => ref ! reportSummary)
+          }
           apply(reportSummary, running - 1, reportTo)
-      }
 
-  private def shuttingDown(running: Int): Behavior[Messages] =
-    Behaviors.receiveSignal {
-      case (_, Terminated(_)) if running == 1 =>
-        Behaviors.stopped
-      case (_, Terminated(_)) =>
-        shuttingDown(running - 1)
+        case RequestReport(replyTo) if running == 0 =>
+          replyTo ! reportSummary
+          Behaviors.same
+
+        case RequestReport(replyTo) =>
+          apply(reportSummary, running, reportTo = Some(replyTo))
+
+        case Shutdown if running == 0 =>
+          Behaviors.stopped
+
+        case Shutdown =>
+          shuttingDown(running)
+      }
     }
 
-  object UrlTestWorker {
-    val urlTimeoutInt = 3000
-
-    sealed trait Messages
-
-    final case class Url(origin: Path, url: String) extends Messages
-
-    def apply(reporter: ActorRef[UrlTester.UrlResult]): Behavior[Messages] =
-      Behaviors.receive { (context, message) =>
+  private def shuttingDown(running: Int): Behavior[Messages] =
+    if (running == 0) Behaviors.stopped
+    else
+      Behaviors.receive[Messages] { (context, message) =>
         message match {
-          case Url(origin, url) =>
-            reporter ! UrlTester.UrlResult(url, connectTo(url), origin)
-            Behaviors.stopped
+          case msg: UrlResult =>
+            shuttingDown(running - 1)
+          case msg: UrlError =>
+            shuttingDown(running - 1)
         }
       }
-
-    private def connectTo(url: String, timeout: Int = urlTimeoutInt): Int =
-      try {
-        val conn =
-          new java.net.URL(url).openConnection().asInstanceOf[HttpURLConnection]
-        conn.setRequestMethod("HEAD")
-        conn.setConnectTimeout(timeout)
-        conn.setReadTimeout(timeout)
-        conn.getResponseCode
-      } catch {
-        case e: sun.security.validator.ValidatorException =>
-          -1
-        case e: Exception =>
-          -2
-      }
-  }
 
 }

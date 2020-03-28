@@ -1,11 +1,12 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{ Path, Paths }
 
-import akka.actor.BootstrapSetup
+import akka.actor.{ BootstrapSetup, CoordinatedShutdown }
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ActorSystem, Behavior, Terminated}
+import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
 import com.typesafe.config.ConfigFactory
+
 import scala.jdk.CollectionConverters._
 
 object Main extends App {
@@ -75,13 +76,23 @@ object Main extends App {
               Behaviors.same
 
             case Report(reportSummary) =>
-              println(reportSummary.errorReport(dir).map { case (file, error) =>
-                s"$file triggered $error"
-              }.mkString("\n"))
+              println(
+                reportSummary
+                  .errorReport(dir)
+                  .map {
+                    case (file, error) =>
+                      s"$file triggered $error"
+                  }
+                  .mkString("\n"))
               println("## Missing local files")
-              println(reportSummary.missingReport(dir, ignoreMissingLocalFileFilter).map { case (file, referrer) =>
-                s"$file referenced from $referrer"
-              }.mkString("\n"))
+              println(
+                reportSummary
+                  .missingReport(dir, ignoreMissingLocalFileFilter)
+                  .map {
+                    case (file, referrer) =>
+                      s"$file referenced from $referrer"
+                  }
+                  .mkString("\n"))
               println(reportSummary.urlFailureReport(dir).mkString("\n"))
               Behaviors.same
 
@@ -103,6 +114,7 @@ object Main extends App {
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`anchorCollector`)) =>
+              CoordinatedShutdown(context.system).run(CoordinatedShutdown.ActorSystemTerminateReason)
               Behaviors.stopped
           }
       }

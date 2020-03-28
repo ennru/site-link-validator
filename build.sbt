@@ -1,10 +1,11 @@
 import sbt._
 
 val AkkaVersion = "2.6.4"
+val AkkaHttpVersion = "10.1.11"
 
 lazy val `site-link-validator` = project
   .in(file("."))
-  .aggregate(core, plugin)
+  .aggregate(core)
   .settings(
     publish / skip := true
   )
@@ -15,6 +16,7 @@ lazy val core = project
     libraryDependencies ++= Seq(
       "org.jsoup" % "jsoup" % "1.13.1",
       "com.typesafe.akka" %% "akka-stream" % AkkaVersion,
+      "com.typesafe.akka" %% "akka-http" % AkkaHttpVersion,
       "com.typesafe.akka" %% "akka-stream-testkit" % AkkaVersion % Test,
       "com.typesafe.akka" %% "akka-stream-typed" % AkkaVersion,
       "com.typesafe.akka" %% "akka-actor-typed" % AkkaVersion,
@@ -23,22 +25,10 @@ lazy val core = project
     )
   )
 
-lazy val plugin = project
-  .dependsOn(core)
-  .enablePlugins(SbtPlugin)
-  .settings(
-    name := "sbt-site-link-validator",
-    scriptedLaunchOpts += ("-Dproject.version=" + version.value),
-    scriptedDependencies := {
-      val p1 = (publishLocal in core).value
-      val p2 = publishLocal.value
-    },
-    scriptedBufferLog := false
-  )
-
 inThisBuild(
   Seq(
     organization := "net.runne",
+    organizationHomepage := Some(url("https://github.com/ennru/")),
     licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0")),
     homepage := Some(url("https://github.com/ennru/site-link-validator")),
     scmInfo := Some(ScmInfo(url("https://github.com/ennru/site-link-validator"), "git@github.com:ennru/site-link-validator.git")),
