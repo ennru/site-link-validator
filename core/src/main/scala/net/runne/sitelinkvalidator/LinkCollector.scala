@@ -5,6 +5,8 @@ import java.nio.file.Path
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
 
+import scala.concurrent.Future
+
 object LinkCollector {
 
   trait Messages
@@ -28,17 +30,17 @@ object LinkCollector {
       outstanding: Int,
       seen: Set[Path]): Behavior[Messages] =
     Behaviors.receive { (context, message) =>
+      import context.executionContext
       message match {
         case FileLocation(origin, file) =>
           val p = file.normalize
           if (p.toFile.exists()) {
             if (!seen.contains(p)) {
-              val reader =
-                context.spawnAnonymous(
-                  HtmlFileReader.reader(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self))
-              val receiveCompletion =
-                context.messageAdapter[HtmlFileReader.Completed.type](_ => FinishedFile)
-              reader ! HtmlFileReader.FilePath(p, receiveCompletion)
+              context.pipeToSelf(Future {
+                HtmlFileReader.findLinks(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self, p)
+              }) { _ =>
+                FinishedFile
+              }
               apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
             } else {
               Behaviors.same
