@@ -56,14 +56,27 @@ object HtmlFileReader {
         }
       }
 
+      def applyLinkMappings(file: Path, link: String)(noMapping: => Unit) = {
+        config.linkMappings
+          .collectFirst {
+            case (prefix, path) if link.startsWith(prefix) =>
+              (prefix, path)
+          }
+          .fold(noMapping) {
+            case (prefix, path) =>
+              val patchedLink = link.substring(prefix.length)
+              checkLocalLink(file, path + patchedLink)
+          }
+      }
+
       (context, message) =>
         message match {
-          case FilePath(file, replyTo) =>
+          case FilePath(file, replyTo) if file.toFile.isFile =>
             implicit val mat: Materializer = SystemMaterializer(context.system).materializer
             val document = Jsoup.parse(file.toFile, "UTF-8", "/")
-            val links = document.select("a[href]")
+            val linksInDocument = document.select("a[href]").asScala.toList
             val fileReader: Future[Done] =
-              Source(links.asScala.toList)
+              Source(linksInDocument)
                 .map { element =>
                   val href = element.attr("abs:href")
                   if (href.startsWith("http")) AbsoluteLink(href)
@@ -75,44 +88,31 @@ object HtmlFileReader {
                 }
                 .runWith(Sink.foreach {
                   case AbsoluteLink(link) if config.ignorePrefixes.forall(prefix => !link.startsWith(prefix)) =>
-                    config.linkMappings
-                      .collectFirst {
-                        case (prefix, path) if link.startsWith(prefix) =>
-                          (prefix, path)
-                      }
-                      .fold {
-                        val (path, _) = splitLinkAnchor(link)
-                        urlTester ! UrlTester.Url(file, path)
-                      } {
-                        case (prefix, path) =>
-                          val patchedLink = link.substring(prefix.length)
-                          checkLocalLink(file, path + patchedLink)
-                      }
+                    applyLinkMappings(file, link) {
+                      val (path, _) = splitLinkAnchor(link)
+                      urlTester ! UrlTester.Url(file, path)
+                    }
 
                   case AbsoluteLink(link) =>
-                  case Link(link) if (link.contains(".html")) =>
-                    config.linkMappings
-                      .collectFirst {
-                        case (prefix, path) if link.startsWith(prefix) =>
-                          (prefix, path)
-                      }
-                      .fold {
-                        checkLocalLink(file, link)
-                      } {
-                        case (prefix, path) =>
-                          val patchedLink = link.substring(prefix.length)
-                          checkLocalLink(file, path + patchedLink)
-                      }
+                  // ignored
+
+                  case Link(link) if link.contains(".html") =>
+                    applyLinkMappings(file, link) {
+                      checkLocalLink(file, link)
+                    }
+
                   case Link("") =>
+                  // ignored
+
                   case AnchorLink(anchor) =>
                     anchorValidator ! AnchorValidator.Link(file, file, anchor)
                 })
-            val anchors = document.select("a[name]")
-            val ids = document.select("a[id]")
+            val anchors = document.select("a[name]").asScala.toList
+            val ids = document.select("a[id]").asScala.toList
             val anchorReader: Future[Done] =
-              Source(anchors.asScala.toList)
+              Source(anchors)
                 .map(_.attr("name"))
-                .concat(Source(ids.asScala.toList).map(_.attr("id")))
+                .concat(Source(ids).map(_.attr("id")))
                 .filter(_.nonEmpty)
                 .map(Anchor)
                 .runWith(Sink.foreach {
@@ -130,6 +130,11 @@ object HtmlFileReader {
                 replyTo ! Completed
                 context.self ! Completed
             }
+            Behaviors.same
+
+          case FilePath(file, replyTo) =>
+            context.log.error(s"can't read {}", file.toFile.getAbsolutePath)
+            replyTo ! Completed
             Behaviors.same
 
           case Completed =>

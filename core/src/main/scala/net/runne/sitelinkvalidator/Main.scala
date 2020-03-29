@@ -115,7 +115,7 @@ object Main extends App {
               Behaviors.same
             case (_, Terminated(`anchorCollector`)) =>
               CoordinatedShutdown(context.system).run(CoordinatedShutdown.ActorSystemTerminateReason)
-              Behaviors.stopped
+              Behaviors.same
           }
       }
 
