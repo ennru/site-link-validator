@@ -1,31 +1,26 @@
 package net.runne.sitelinkvalidator
 
-import java.net.HttpURLConnection
 import java.nio.file.Path
 
 import akka.Done
 import akka.actor.CoordinatedShutdown
 import akka.actor.typed.scaladsl.Behaviors
-import akka.pattern.pipe
-import akka.actor.typed.{ ActorRef, Behavior, Terminated }
-import akka.dispatch.ExecutionContexts
-import akka.http.scaladsl.{ Http, HttpExt }
-import akka.http.scaladsl.model.{ HttpMethod, HttpMethods, HttpRequest, HttpResponse }
+import akka.actor.typed.{ ActorRef, Behavior }
+import akka.http.scaladsl.Http
+import akka.http.scaladsl.model.headers.Location
+import akka.http.scaladsl.model._
 import akka.stream.SystemMaterializer
 
-import scala.concurrent.ExecutionContext
-import scala.util.{ Failure, Success, Try }
+import scala.util.{ Failure, Success }
 
 object UrlTester {
   val urlTimeoutInt = 343
-  private[this] val HttpOk = 200
-  private[this] val HttpRedirect = 301
 
   sealed trait Messages
 
   final case class Url(origin: Path, url: String) extends Messages
 
-  final case class UrlResult(url: String, status: Int, referrer: Path) extends Messages
+  final case class UrlResult(url: String, status: StatusCode, referrer: Path, redirected: Option[Uri]) extends Messages
 
   final case class UrlError(url: String, e: Throwable, referrer: Path) extends Messages
 
@@ -35,7 +30,10 @@ object UrlTester {
 
   object Completed
 
-  case class ReportSummary(urlCounters: Map[String, Set[Path]] = Map.empty, status: Map[String, Int] = Map.empty) {
+  case class ReportSummary(
+      urlCounters: Map[String, Set[Path]] = Map.empty,
+      status: Map[String, StatusCode] = Map.empty,
+      redirectTo: Map[String, Uri] = Map.empty) {
     def contains(url: String) = urlCounters.keySet.contains(url)
 
     def count(url: String, referringFile: Path): ReportSummary = {
@@ -44,7 +42,9 @@ object UrlTester {
     }
 
     def testResult(res: UrlResult): ReportSummary = {
-      copy(status = status.updated(res.url, res.status))
+      copy(status = status.updated(res.url, res.status), redirectTo = res.redirected.fold(redirectTo) { uri =>
+        redirectTo.updated(res.url, uri)
+      })
     }
 
     def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
@@ -52,7 +52,7 @@ object UrlTester {
       topPages(limit).flatMap {
         case (files, url, status) =>
           Seq(s"${files.size} links to $url status ${status.map(_.toString).getOrElse("")}") ++ {
-            if (status.contains(HttpOk)) Seq()
+            if (status.contains(StatusCodes.OK)) Seq()
             else listFiles(files, rootDir, filesPerUrl)
           }
       } ++
@@ -63,8 +63,8 @@ object UrlTester {
       } ++
       Seq("", "## Redirected URLs") ++
       redirectPages.flatMap {
-        case (url, files) =>
-          Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
+        case ((url, location), files) =>
+          Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Non-https pages") ++
       urlCounters.toSeq
@@ -81,11 +81,11 @@ object UrlTester {
     private def nonOkPages = {
       status
         .filter {
-          case (url, status) if status != HttpOk => true
-          case _                                 => false
+          case (url, status) if status != StatusCodes.OK => true
+          case _                                         => false
         }
         .toList
-        .sortBy(t => (t._2, t._1))
+        .sortBy(t => (t._2.intValue(), t._1))
         .map {
           case (url, status) =>
             (url, status, urlCounters.getOrElse(url, Set.empty))
@@ -93,20 +93,14 @@ object UrlTester {
     }
 
     private def redirectPages = {
-      status
-        .filter {
-          case (url, status) if status == HttpRedirect => true
-          case _                                       => false
-        }
-        .keys
-        .toList
-        .map { url =>
-          url -> urlCounters.getOrElse(url, Set.empty)
-        }
+      redirectTo.toList.map {
+        case (url, location) =>
+          (url, location) -> urlCounters.getOrElse(url, Set.empty)
+      }
     }
 
     private def listFiles(f: Set[Path], rootDir: Path, filesPerUrl: Int) =
-      f.toSeq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString)
+      f.toSeq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString) ++ Seq("")
 
     private def topPages(limit: Int) = {
       urlCounters.toSeq.sortBy(-_._2.size).take(limit).map {
@@ -139,7 +133,10 @@ object UrlTester {
               context.pipeToSelf(response) {
                 case Success(res) =>
                   res.entity.discardBytes(SystemMaterializer(context.system).materializer)
-                  UrlResult(url, res.status.intValue(), origin)
+                  val redirectUri = res.headers.collectFirst {
+                    case loc: Location => loc.uri
+                  }
+                  UrlResult(url, res.status, origin, redirectUri)
                 case Failure(res) =>
                   UrlError(url, res, origin)
               }
