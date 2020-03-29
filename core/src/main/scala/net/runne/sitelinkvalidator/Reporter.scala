@@ -12,8 +12,6 @@ object Reporter {
 
   trait Messages
 
-  final case class FileChecked(file: Path) extends Messages
-
   final case class UrlChecked(url: String) extends Messages
 
   final case class UrlRedirect(url: String) extends Messages
@@ -77,9 +75,9 @@ object Reporter {
         replyTo ! reportSummary
         Behaviors.stopped
 
-      case m: FileErrored                 => apply(reportSummary.addError(m))
-      case m: UrlFailed                   => apply(reportSummary.addUrlFailure(m))
-      case m: Missing                     => apply(reportSummary.addMissing(m))
-      case _: FileChecked | _: UrlChecked => Behaviors.same
+      case m: FileErrored => apply(reportSummary.addError(m))
+      case m: UrlFailed   => apply(reportSummary.addUrlFailure(m))
+      case m: Missing     => apply(reportSummary.addMissing(m))
+      case _: UrlChecked  => Behaviors.same
     }
 }
