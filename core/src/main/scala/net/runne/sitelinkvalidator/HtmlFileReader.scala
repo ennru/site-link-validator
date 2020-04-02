@@ -21,12 +21,12 @@ object HtmlFileReader {
   case class Config(rootDir: Path, linkMappings: Map[String, String], ignorePrefixes: Seq[String])
 
   def findLinks(
-                 config: Config,
-                 reporter: ActorRef[Reporter.Messages],
-                 anchorValidator: ActorRef[AnchorValidator.Messages],
-                 urlTester: ActorRef[UrlTester.Messages],
-                 linkCollector: ActorRef[LinkCollector.Messages],
-                 path: Path): Unit = {
+      config: Config,
+      reporter: ActorRef[Reporter.Messages],
+      anchorValidator: ActorRef[AnchorValidator.Messages],
+      urlTester: ActorRef[UrlTester.Messages],
+      linkCollector: ActorRef[LinkCollector.Messages],
+      path: Path): Unit = {
 
     val file: Path =
       if (path.toFile.isFile) path
@@ -36,22 +36,22 @@ object HtmlFileReader {
         else path
       }
 
-    if (file.toFile.exists) {
+    if (file.toFile.isFile) {
       val document = Jsoup.parse(file.toFile, "UTF-8", "/")
       val linksInDocument = document.select("a[href]").asScala.toList
       checkLinks(file, linksInDocument)
 
       val anchors = document.select("a[name]").asScala.toList
       val ids = document.select("a[id]").asScala.toList
-      checkAnchors(file, anchors, ids)
+      collectAnchors(file, anchors, ids)
     } else {
       reporter ! Reporter.FileErrored(path, new RuntimeException(s"$file is not a file"))
     }
 
-    def checkAnchors(file: Path, anchors: List[Element], ids: List[Element]) =
-      anchors.map(_.attr("name")).concat(ids.map(_.attr("id"))).filter(_.nonEmpty).foreach { name =>
-        anchorValidator ! AnchorValidator.Anchor(file, name)
-      }
+    def collectAnchors(file: Path, anchors: List[Element], ids: List[Element]) = {
+      val all = anchors.map(_.attr("name")).concat(ids.map(_.attr("id"))).filter(_.nonEmpty).toSet
+      anchorValidator ! AnchorValidator.Anchor(file, all)
+    }
 
     def checkLocalLink(file: Path, link: String) = {
       val (path, anchor) = splitLinkAnchor(link)
