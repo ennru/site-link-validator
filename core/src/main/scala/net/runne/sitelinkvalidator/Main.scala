@@ -2,7 +2,7 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.{ Path, Paths }
 
-import akka.actor.{ BootstrapSetup, CoordinatedShutdown }
+import akka.actor.BootstrapSetup
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
 import com.typesafe.config.ConfigFactory
@@ -51,12 +51,10 @@ object Main extends App {
     val file = dir.resolve(initialFile)
     val exists = file.toFile.exists()
     require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
+    val ignoreMissingLocalFileFilter = config.getString("ignore-missing-local-files-regex").r
 
     def main(): Behavior[Messages] =
       Behaviors.setup { context =>
-        val ignoreMissingLocalFileFilter = "doesnt match any".r
-        //          """(.*/snapshot/java/lang/.*)|(^api/alpakka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka/snapshot/com(/.*)?/(com/google/.*))""".r
-        //          """(.*/snapshot/java/lang/.*)|(^api/alpakka-kafka/snapshot/akka(/.*)?/(akka/.*))|(^api/alpakka-kafka/snapshot/com(/.*)?/(com/google/.*))""".r
         val reporter = context.spawn(Reporter(), "reporter")
         context.watch(reporter)
         val anchorCollector = context.spawn(AnchorValidator(), "anchorCollector")
@@ -76,6 +74,8 @@ object Main extends App {
               Behaviors.same
 
             case Report(reportSummary) =>
+              println()
+              println("## Errors")
               println(
                 reportSummary
                   .errorReport(dir)
@@ -84,6 +84,7 @@ object Main extends App {
                       s"$file triggered $error"
                   }
                   .mkString("\n"))
+              println()
               println("## Missing local files")
               println(
                 reportSummary
@@ -93,6 +94,8 @@ object Main extends App {
                       s"$file referenced from $referrer"
                   }
                   .mkString("\n"))
+              println()
+              println("## URL Errors")
               println(reportSummary.urlFailureReport(dir).mkString("\n"))
               Behaviors.same
 
@@ -114,8 +117,7 @@ object Main extends App {
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`anchorCollector`)) =>
-              CoordinatedShutdown(context.system).run(CoordinatedShutdown.ActorSystemTerminateReason)
-              Behaviors.same
+              Behaviors.stopped
           }
       }
 

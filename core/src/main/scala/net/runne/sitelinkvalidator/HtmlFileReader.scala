@@ -21,14 +21,22 @@ object HtmlFileReader {
   case class Config(rootDir: Path, linkMappings: Map[String, String], ignorePrefixes: Seq[String])
 
   def findLinks(
-      config: Config,
-      reporter: ActorRef[Reporter.Messages],
-      anchorValidator: ActorRef[AnchorValidator.Messages],
-      urlTester: ActorRef[UrlTester.Messages],
-      linkCollector: ActorRef[LinkCollector.Messages],
-      file: Path): Unit = {
+                 config: Config,
+                 reporter: ActorRef[Reporter.Messages],
+                 anchorValidator: ActorRef[AnchorValidator.Messages],
+                 urlTester: ActorRef[UrlTester.Messages],
+                 linkCollector: ActorRef[LinkCollector.Messages],
+                 path: Path): Unit = {
 
-    if (file.toFile.isFile) {
+    val file: Path =
+      if (path.toFile.isFile) path
+      else {
+        val index = path.resolve("index.html")
+        if (path.toFile.isDirectory && index.toFile.isFile) index
+        else path
+      }
+
+    if (file.toFile.exists) {
       val document = Jsoup.parse(file.toFile, "UTF-8", "/")
       val linksInDocument = document.select("a[href]").asScala.toList
       checkLinks(file, linksInDocument)
@@ -37,7 +45,7 @@ object HtmlFileReader {
       val ids = document.select("a[id]").asScala.toList
       checkAnchors(file, anchors, ids)
     } else {
-      reporter ! Reporter.FileErrored(file, new RuntimeException(s"$file is not a file"))
+      reporter ! Reporter.FileErrored(path, new RuntimeException(s"$file is not a file"))
     }
 
     def checkAnchors(file: Path, anchors: List[Element], ids: List[Element]) =

@@ -111,10 +111,10 @@ object UrlTester {
 
   def apply(): Behavior[Messages] = {
     Behaviors.setup { context =>
-      CoordinatedShutdown(context.system)
-        .addTask(CoordinatedShutdown.PhaseActorSystemTerminate, "shut-down-client-http-pool") { () =>
-          Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
-        }
+      val cs = CoordinatedShutdown(context.system)
+      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
+        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
+      }
       apply(ReportSummary(), running = 0, None)
     }
   }
