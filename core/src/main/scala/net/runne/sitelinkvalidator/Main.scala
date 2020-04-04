@@ -41,7 +41,7 @@ object Main extends App {
 
   trait Messages
 
-  case class UrlReport(summary: UrlTester.ReportSummary) extends Messages
+  case class UrlReport(summary: UrlSummary.Report) extends Messages
 
   case class Report(summary: Reporter.ReportSummary) extends Messages
 
@@ -70,7 +70,6 @@ object Main extends App {
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
               print(summary.print(rootDir, nonHttpsWhitelist).mkString("\n"))
-              urlTester ! UrlTester.Shutdown
               Behaviors.same
 
             case Report(reportSummary) =>
@@ -105,7 +104,7 @@ object Main extends App {
           }
           .receiveSignal {
             case (_, Terminated(`collector`)) =>
-              val replyTo = context.messageAdapter[UrlTester.ReportSummary](summary => UrlReport(summary))
+              val replyTo = context.messageAdapter[UrlSummary.Report](summary => UrlReport(summary))
               urlTester ! UrlTester.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`urlTester`)) =>

@@ -7,44 +7,34 @@ import akka.actor.CoordinatedShutdown
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
 import akka.http.scaladsl.Http
-import akka.http.scaladsl.model.headers.Location
 import akka.http.scaladsl.model._
-import akka.stream.SystemMaterializer
+import akka.http.scaladsl.model.headers.Location
+import akka.stream.typed.scaladsl.{ ActorSink, ActorSource }
+import akka.stream.{ OverflowStrategy, SystemMaterializer }
 
 import scala.util.{ Failure, Success }
 
-object UrlTester {
-  val urlTimeoutInt = 343
+object UrlSummary {
 
-  sealed trait Messages
-
-  final case class Url(origin: Path, url: String) extends Messages
-
-  final case class UrlResult(url: String, status: StatusCode, referrer: Path, redirected: Option[Uri]) extends Messages
-
-  final case class UrlError(url: String, e: Throwable, referrer: Path) extends Messages
-
-  final case class RequestReport(replyTo: ActorRef[ReportSummary]) extends Messages
-
-  object Shutdown extends Messages
-
-  object Completed
-
-  case class ReportSummary(
+  case class Report(
       urlCounters: Map[String, Set[Path]] = Map.empty,
       status: Map[String, StatusCode] = Map.empty,
       redirectTo: Map[String, Uri] = Map.empty) {
-    def contains(url: String) = urlCounters.keySet.contains(url)
+    def contains(url: String) = urlCounters.contains(url)
 
-    def count(url: String, referringFile: Path): ReportSummary = {
+    def count(url: String, referringFile: Path): Report = {
       val files = urlCounters.getOrElse(url, Set.empty)
       copy(urlCounters = urlCounters.updated(url, files + referringFile))
     }
 
-    def testResult(res: UrlResult): ReportSummary = {
+    def testResult(res: UrlResult): Report = {
       copy(status = status.updated(res.url, res.status), redirectTo = res.redirected.fold(redirectTo) { uri =>
         redirectTo.updated(res.url, uri)
       })
+    }
+
+    def testResult(res: UrlError): Report = {
+      copy(status = status.updated(res.url, StatusCodes.custom(-1, res.e.toString, "", false, false)))
     }
 
     def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
@@ -81,8 +71,8 @@ object UrlTester {
     private def nonOkPages = {
       status
         .filter {
-          case (url, status) if status != StatusCodes.OK => true
-          case _                                         => false
+          case (url, status) =>
+            status != StatusCodes.OK && status != StatusCodes.MovedPermanently
         }
         .toList
         .sortBy(t => (t._2.intValue(), t._1))
@@ -99,8 +89,12 @@ object UrlTester {
       }
     }
 
-    private def listFiles(f: Set[Path], rootDir: Path, filesPerUrl: Int) =
-      f.toSeq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString) ++ Seq("")
+    private def listFiles(f: Set[Path], rootDir: Path, filesPerUrl: Int) = {
+      val seq = f.toSeq
+      seq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString) ++ {
+        if (seq.lengthCompare(filesPerUrl) > 0) Seq(" - ...", "") else Seq("")
+      }
+    }
 
     private def topPages(limit: Int) = {
       urlCounters.toSeq.sortBy(-_._2.size).take(limit).map {
@@ -109,79 +103,119 @@ object UrlTester {
     }
   }
 
+  sealed trait Messages
+
+  final case class UrlCount(url: String, referringFile: Path) extends Messages
+
+  final case class UrlResult(url: String, status: StatusCode, referrer: Path, redirected: Option[Uri]) extends Messages
+
+  final case class UrlError(url: String, e: Throwable, referrer: Path) extends Messages
+
+  final case class RequestReport(replyTo: ActorRef[UrlSummary.Report]) extends Messages
+
+  final case class StreamFailed(e: Throwable) extends Messages
+
+  def apply(): Behavior[Messages] = apply(Report())
+
+  private def apply(reportSummary: Report): Behavior[Messages] = {
+    Behaviors.receive {
+      case (_, UrlCount(url, referringFile)) =>
+        apply(reportSummary.count(url, referringFile))
+
+      case (_, msg: UrlResult) =>
+        apply(reportSummary.testResult(msg))
+
+      case (_, msg: UrlError) =>
+        apply(reportSummary.testResult(msg))
+
+      case (_, RequestReport(replyTo)) =>
+        replyTo ! reportSummary
+        Behaviors.same
+
+      case (context, StreamFailed(e)) =>
+        context.log.error("URL testing failed", e)
+        Behaviors.stopped
+    }
+  }
+
+}
+
+object UrlTester {
+
+  sealed trait Messages
+
+  final case class Url(referringFile: Path, url: String) extends Messages
+
+  final case class RequestReport(report: ActorRef[UrlSummary.Report]) extends Messages
+
+  final case class Report(report: UrlSummary.Report) extends Messages
+
+  private sealed trait QueueMessages
+  private final case class QueueUrl(referringFile: Path, url: String) extends QueueMessages
+  private object QueueShutdown extends QueueMessages
+
   def apply(): Behavior[Messages] = {
     Behaviors.setup { context =>
+      implicit val system = context.system
+      implicit val ec = context.executionContext
       val cs = CoordinatedShutdown(context.system)
       cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
         Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
       }
-      apply(ReportSummary(), running = 0, None)
+
+      val summary: ActorRef[UrlSummary.Messages] = context.spawn(UrlSummary.apply(), "summary")
+      val httpQueue: ActorRef[QueueMessages] = ActorSource
+        .actorRef[QueueMessages]({
+          case QueueShutdown =>
+        }, failureMatcher = PartialFunction.empty, bufferSize = 5000, OverflowStrategy.dropTail)
+        .collect {
+          case u: QueueUrl => u
+        }
+        .mapAsync(20) {
+          case QueueUrl(origin, url) =>
+            val request = HttpRequest(HttpMethods.HEAD, url)
+            Http(context.system).singleRequest(request).transform {
+              case Success(res) =>
+                res.entity.discardBytes(SystemMaterializer(context.system).materializer)
+                val redirectUri = res.headers.collectFirst {
+                  case loc: Location => loc.uri
+                }
+                Success(UrlSummary.UrlResult(url, res.status, origin, redirectUri))
+              case Failure(res) =>
+                Success(UrlSummary.UrlError(url, res, origin))
+            }
+        }
+        .to {
+          ActorSink.actorRef[UrlSummary.Messages](
+            summary,
+            UrlSummary.RequestReport(context.messageAdapter(report => Report(report))),
+            UrlSummary.StreamFailed)
+        }
+        .run()
+      apply(testedUrls = Set.empty, httpQueue, summary, None)
     }
   }
 
   private def apply(
-      reportSummary: ReportSummary,
-      running: Int,
-      reportTo: Option[ActorRef[ReportSummary]]): Behavior[Messages] =
-    Behaviors.receive[Messages] { (context, message) =>
-      message match {
-        case Url(origin, url) =>
-          val nowRunning =
-            if (!reportSummary.contains(url)) {
-              val request = HttpRequest(HttpMethods.HEAD, url)
-              val response = Http(context.system).singleRequest(request)
-              context.pipeToSelf(response) {
-                case Success(res) =>
-                  res.entity.discardBytes(SystemMaterializer(context.system).materializer)
-                  val redirectUri = res.headers.collectFirst {
-                    case loc: Location => loc.uri
-                  }
-                  UrlResult(url, res.status, origin, redirectUri)
-                case Failure(res) =>
-                  UrlError(url, res, origin)
-              }
-              running + 1
-            } else running
-          apply(reportSummary.count(url, origin), nowRunning, reportTo)
-
-        case msg: UrlResult =>
-          val summary = reportSummary.testResult(msg)
-          if (running == 1) {
-            reportTo.foreach(ref => ref ! summary)
-          }
-          apply(summary, running - 1, reportTo)
-
-        case msg: UrlError =>
-          if (running == 1) {
-            reportTo.foreach(ref => ref ! reportSummary)
-          }
-          apply(reportSummary, running - 1, reportTo)
-
-        case RequestReport(replyTo) if running == 0 =>
-          replyTo ! reportSummary
-          Behaviors.same
-
-        case RequestReport(replyTo) =>
-          apply(reportSummary, running, reportTo = Some(replyTo))
-
-        case Shutdown if running == 0 =>
-          Behaviors.stopped
-
-        case Shutdown =>
-          shuttingDown(running)
-      }
-    }
-
-  private def shuttingDown(running: Int): Behavior[Messages] =
-    if (running == 0) Behaviors.stopped
-    else
-      Behaviors.receive[Messages] { (context, message) =>
-        message match {
-          case msg: UrlResult =>
-            shuttingDown(running - 1)
-          case msg: UrlError =>
-            shuttingDown(running - 1)
+      testedUrls: Set[String],
+      httpQueue: ActorRef[QueueMessages],
+      summary: ActorRef[UrlSummary.Messages],
+      replyTo: Option[ActorRef[UrlSummary.Report]] = None): Behavior[Messages] =
+    Behaviors.receiveMessage {
+      case Url(referringFile, url) =>
+        summary ! UrlSummary.UrlCount(url, referringFile)
+        if (!testedUrls.contains(url)) {
+          httpQueue ! QueueUrl(referringFile, url)
         }
-      }
+        apply(testedUrls + url, httpQueue, summary)
+
+      case RequestReport(replyTo) =>
+        httpQueue ! QueueShutdown
+        apply(testedUrls, httpQueue, summary, replyTo = Some(replyTo))
+
+      case Report(report) =>
+        replyTo.foreach(_ ! report)
+        Behaviors.stopped
+    }
 
 }
