@@ -2,8 +2,6 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.Path
 
-import akka.Done
-import akka.actor.CoordinatedShutdown
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
 import akka.http.scaladsl.Http
@@ -17,14 +15,14 @@ import scala.util.{ Failure, Success }
 object UrlSummary {
 
   case class Report(
-      urlCounters: Map[String, Set[Path]] = Map.empty,
+      urlReferrers: Map[String, Set[Path]] = Map.empty,
       status: Map[String, StatusCode] = Map.empty,
       redirectTo: Map[String, Uri] = Map.empty) {
-    def contains(url: String) = urlCounters.contains(url)
+    def contains(url: String) = urlReferrers.contains(url)
 
     def count(url: String, referringFile: Path): Report = {
-      val files = urlCounters.getOrElse(url, Set.empty)
-      copy(urlCounters = urlCounters.updated(url, files + referringFile))
+      val files = urlReferrers.getOrElse(url, Set.empty)
+      copy(urlReferrers = urlReferrers.updated(url, files + referringFile))
     }
 
     def testResult(res: UrlResult): Report = {
@@ -41,7 +39,7 @@ object UrlSummary {
       Seq("## Top linked pages") ++
       topPages(limit).flatMap {
         case (files, url, status) =>
-          Seq(s"${files.size} links to $url status ${status.map(_.toString).getOrElse("")}") ++ {
+          Seq(s"${files.size} links to $url   (${status.map(_.toString).getOrElse("")})") ++ {
             if (status.contains(StatusCodes.OK)) Seq()
             else listFiles(files, rootDir, filesPerUrl)
           }
@@ -57,7 +55,7 @@ object UrlSummary {
           Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Non-https pages") ++
-      urlCounters.toSeq
+      urlReferrers.toSeq
         .filter {
           case (url, files) => url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
         }
@@ -69,35 +67,37 @@ object UrlSummary {
     }
 
     private def nonOkPages = {
-      status
+      status.toList
         .filter {
           case (url, status) =>
             status != StatusCodes.OK && status != StatusCodes.MovedPermanently
         }
-        .toList
-        .sortBy(t => (t._2.intValue(), t._1))
+        .sortBy {
+          case (url, status) =>
+            (status.intValue(), url)
+        }
         .map {
           case (url, status) =>
-            (url, status, urlCounters.getOrElse(url, Set.empty))
+            (url, status, urlReferrers.getOrElse(url, Set.empty))
         }
     }
 
     private def redirectPages = {
       redirectTo.toList.map {
         case (url, location) =>
-          (url, location) -> urlCounters.getOrElse(url, Set.empty)
+          (url, location) -> urlReferrers.getOrElse(url, Set.empty)
       }
     }
 
     private def listFiles(f: Set[Path], rootDir: Path, filesPerUrl: Int) = {
-      val seq = f.toSeq
-      seq.take(filesPerUrl).toList.map(f => " - " + rootDir.relativize(f).toString) ++ {
-        if (seq.lengthCompare(filesPerUrl) > 0) Seq(" - ...", "") else Seq("")
+      val seq = f.toList.sorted
+      seq.take(filesPerUrl).map(f => " - " + rootDir.relativize(f).toString) ++ {
+        if (seq.lengthCompare(filesPerUrl) > 0) Seq(s" - ... ${seq.length - filesPerUrl} more", "") else Seq("")
       }
     }
 
     private def topPages(limit: Int) = {
-      urlCounters.toSeq.sortBy(-_._2.size).take(limit).map {
+      urlReferrers.toSeq.sortBy(-_._2.size).take(limit).map {
         case (url, files) => (files, url, status.get(url))
       }
     }
@@ -151,17 +151,19 @@ object UrlTester {
   final case class Report(report: UrlSummary.Report) extends Messages
 
   private sealed trait QueueMessages
+
   private final case class QueueUrl(referringFile: Path, url: String) extends QueueMessages
+
   private object QueueShutdown extends QueueMessages
 
   def apply(): Behavior[Messages] = {
     Behaviors.setup { context =>
       implicit val system = context.system
       implicit val ec = context.executionContext
-      val cs = CoordinatedShutdown(context.system)
-      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
-        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
-      }
+//      val cs = CoordinatedShutdown(context.system)
+//      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
+//        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
+//      }
 
       val summary: ActorRef[UrlSummary.Messages] = context.spawn(UrlSummary.apply(), "summary")
       val httpQueue: ActorRef[QueueMessages] = ActorSource
@@ -188,7 +190,7 @@ object UrlTester {
         .to {
           ActorSink.actorRef[UrlSummary.Messages](
             summary,
-            UrlSummary.RequestReport(context.messageAdapter(report => Report(report))),
+            UrlSummary.RequestReport(context.messageAdapter(Report)),
             UrlSummary.StreamFailed)
         }
         .run()
@@ -201,7 +203,7 @@ object UrlTester {
       httpQueue: ActorRef[QueueMessages],
       summary: ActorRef[UrlSummary.Messages],
       replyTo: Option[ActorRef[UrlSummary.Report]] = None): Behavior[Messages] =
-    Behaviors.receiveMessage {
+    Behaviors.receiveMessagePartial {
       case Url(referringFile, url) =>
         summary ! UrlSummary.UrlCount(url, referringFile)
         if (!testedUrls.contains(url)) {
@@ -211,10 +213,14 @@ object UrlTester {
 
       case RequestReport(replyTo) =>
         httpQueue ! QueueShutdown
-        apply(testedUrls, httpQueue, summary, replyTo = Some(replyTo))
+        shuttingDown(replyTo)
+    }
 
-      case Report(report) =>
-        replyTo.foreach(_ ! report)
+  private def shuttingDown(reportTo: ActorRef[UrlSummary.Report]): Behavior[Messages] =
+    Behaviors.receivePartial {
+      case (context, Report(report)) =>
+        Http(context.system).shutdownAllConnectionPools()
+        reportTo ! report
         Behaviors.stopped
     }
 
