@@ -54,7 +54,7 @@ object AnchorValidator {
             Seq(relFile.toString, "requested") ++
             unseen.map(a => s" - $a") ++
             Seq("seen") ++
-            anchors.seen.map(a => s" - $a") ++
+            anchors.seen.toList.sorted.map(a => s" - $a") ++
             Seq("requested in") ++
             anchors.requested
               .filter {
@@ -65,7 +65,8 @@ object AnchorValidator {
               .map {
                 case (p, an) =>
                   s" - ${rootDir.relativize(p)} ${path.getFileName}#$an"
-              }
+              } ++
+            Seq("")
         }
     }
   }
