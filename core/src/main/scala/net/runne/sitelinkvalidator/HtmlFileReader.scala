@@ -26,15 +26,7 @@ object HtmlFileReader {
       anchorValidator: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages],
       linkCollector: ActorRef[LinkCollector.Messages],
-      path: Path): Unit = {
-
-    val file: Path =
-      if (path.toFile.isFile) path
-      else {
-        val index = path.resolve("index.html")
-        if (path.toFile.isDirectory && index.toFile.isFile) index
-        else path
-      }
+      file: Path): Unit = {
 
     if (file.toFile.isFile) {
       val document = Jsoup.parse(file.toFile, "UTF-8", "/")
@@ -45,7 +37,7 @@ object HtmlFileReader {
       val ids = document.select("a[id]").asScala.toList
       collectAnchors(file, anchors, ids)
     } else {
-      reporter ! Reporter.FileErrored(path, new RuntimeException(s"$file is not a file"))
+      reporter ! Reporter.FileErrored(file, new RuntimeException(s"$file is not a file"))
     }
 
     def collectAnchors(file: Path, anchors: List[Element], ids: List[Element]) = {
@@ -102,13 +94,10 @@ object HtmlFileReader {
           case AbsoluteLink(link) =>
           // ignored
 
-          case Link(link) if link.contains(".html") =>
+          case Link(link) =>
             applyLinkMappings(file, link) {
               checkLocalLink(file, link)
             }
-
-          case Link("") =>
-          // ignored
 
           case AnchorLink(anchor) =>
             anchorValidator ! AnchorValidator.Link(file, file, anchor)

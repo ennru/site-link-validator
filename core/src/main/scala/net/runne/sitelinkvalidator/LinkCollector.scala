@@ -1,6 +1,6 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.Path
+import java.nio.file.{ Path, Paths }
 
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, Behavior }
@@ -33,21 +33,25 @@ object LinkCollector {
       import context.executionContext
       message match {
         case FileLocation(origin, file) =>
-          val p = file.normalize
-          if (p.toFile.exists()) {
-            if (!seen.contains(p)) {
-              context.pipeToSelf(Future {
-                HtmlFileReader.findLinks(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self, p)
-              }) { _ =>
-                FinishedFile
-              }
-              apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding + 1, seen + p)
-            } else {
-              Behaviors.same
-            }
+          if (seen.contains(file)) {
+            Behaviors.same
           } else {
-            reporter ! Reporter.Missing(origin, p)
-            apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding, seen + p)
+            val p = findHtml(file.normalize)
+            if (seen.contains(p)) {
+              Behaviors.same
+            } else {
+              if (p.toFile.exists()) {
+                context.pipeToSelf(Future {
+                  HtmlFileReader.findLinks(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self, p)
+                }) { _ =>
+                  FinishedFile
+                }
+                apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding + 1, seen + p + file)
+              } else {
+                reporter ! Reporter.Missing(origin, p)
+                apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding, seen + p + file)
+              }
+            }
           }
 
         case FinishedFile if outstanding == 1 =>
@@ -57,4 +61,19 @@ object LinkCollector {
           apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding - 1, seen)
       }
     }
+
+  private def findHtml(p: Path) = {
+    if (p.toFile.exists()) {
+      if (p.toFile.isFile) p
+      else {
+        val index = p.resolve("index.html")
+        if (p.toFile.isDirectory && index.toFile.isFile) index
+        else p
+      }
+    } else {
+      val p2 = Paths.get(p.toString + ".html")
+      if (p2.toFile.isFile) p2
+      else p
+    }
+  }
 }
