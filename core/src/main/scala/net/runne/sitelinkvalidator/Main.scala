@@ -62,7 +62,7 @@ object Main extends App {
         val urlTester = context.spawn(UrlTester(), "urlTester")
         context.watch(urlTester)
         val collector =
-          context.spawn(LinkCollector(htmlFileReaderConfig, reporter, anchorCollector, urlTester), "collector")
+          LinkCollector.stream(htmlFileReaderConfig, reporter, anchorCollector, urlTester)(context.system)
         context.watch(collector)
 
         collector ! LinkCollector.FileLocation(dir, file)

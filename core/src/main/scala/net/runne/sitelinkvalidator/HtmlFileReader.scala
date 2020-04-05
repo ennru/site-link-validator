@@ -25,7 +25,7 @@ object HtmlFileReader {
       reporter: ActorRef[Reporter.Messages],
       anchorValidator: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages],
-      linkCollector: ActorRef[LinkCollector.Messages],
+      linkCollector: ActorRef[LinkCollector.FileLocation],
       file: Path): Unit = {
 
     if (file.toFile.isFile) {

@@ -2,65 +2,61 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.{ Path, Paths }
 
-import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ ActorRef, Behavior }
+import akka.NotUsed
+import akka.actor.typed.{ ActorRef, ActorSystem }
+import akka.stream.OverflowStrategy
+import akka.stream.scaladsl.{ Flow, Sink }
+import akka.stream.typed.scaladsl.ActorSource
 
-import scala.concurrent.Future
+import scala.concurrent.Promise
+import scala.concurrent.duration._
 
 object LinkCollector {
 
-  trait Messages
+  final case class FileLocation(origin: Path, file: Path)
 
-  final case class FileLocation(origin: Path, file: Path) extends Messages
-
-  case object FinishedFile extends Messages
-
-  def apply(
+  def stream(
       htmlFileReaderConfig: HtmlFileReader.Config,
       reporter: ActorRef[Reporter.Messages],
       anchorCollector: ActorRef[AnchorValidator.Messages],
-      urlTester: ActorRef[UrlTester.Messages]): Behavior[Messages] =
-    apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding = 0, seen = Set.empty)
+      urlTester: ActorRef[UrlTester.Messages])(implicit system: ActorSystem[_]): ActorRef[FileLocation] = {
+    implicit val ec = system.executionContext
 
-  private def apply(
-      htmlFileReaderConfig: HtmlFileReader.Config,
-      reporter: ActorRef[Reporter.Messages],
-      anchorCollector: ActorRef[AnchorValidator.Messages],
-      urlTester: ActorRef[UrlTester.Messages],
-      outstanding: Int,
-      seen: Set[Path]): Behavior[Messages] =
-    Behaviors.receive { (context, message) =>
-      import context.executionContext
-      message match {
-        case FileLocation(origin, file) =>
-          if (seen.contains(file)) {
-            Behaviors.same
-          } else {
-            val p = findHtml(file.normalize)
-            if (seen.contains(p)) {
-              Behaviors.same
-            } else {
-              if (p.toFile.exists()) {
-                context.pipeToSelf(Future {
-                  HtmlFileReader.findLinks(htmlFileReaderConfig, reporter, anchorCollector, urlTester, context.self, p)
-                }) { _ =>
-                  FinishedFile
-                }
-                apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding + 1, seen + p + file)
-              } else {
-                reporter ! Reporter.Missing(origin, p)
-                apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding, seen + p + file)
-              }
-            }
-          }
-
-        case FinishedFile if outstanding == 1 =>
-          Behaviors.stopped
-
-        case FinishedFile =>
-          apply(htmlFileReaderConfig, reporter, anchorCollector, urlTester, outstanding - 1, seen)
-      }
+    def unique[T]: Flow[T, T, NotUsed] = Flow[T].statefulMapConcat { () =>
+      var seen: Set[T] = Set.empty
+      value =>
+        if (seen.contains(value)) List()
+        else {
+          seen = seen + value
+          List(value)
+        }
     }
+
+    val self = Promise[ActorRef[FileLocation]]
+    val collector = ActorSource
+      .actorRef[FileLocation](
+        completionMatcher = PartialFunction.empty,
+        failureMatcher = PartialFunction.empty,
+        5000,
+        OverflowStrategy.fail)
+      // termination of this stream signals end of processing
+      .idleTimeout(500.millis)
+      .map {
+        case FileLocation(_, file) =>
+          findHtml(file.normalize)
+      }
+      .via(unique)
+      .filter(_.toFile.isFile)
+      .mapAsync(100) { file =>
+        self.future.map { linkCollector =>
+          HtmlFileReader.findLinks(htmlFileReaderConfig, reporter, anchorCollector, urlTester, linkCollector, file)
+        }
+      }
+      .to(Sink.ignore)
+      .run()
+    self.success(collector)
+    collector
+  }
 
   private def findHtml(p: Path) = {
     if (p.toFile.exists()) {
