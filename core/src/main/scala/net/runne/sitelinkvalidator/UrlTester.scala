@@ -194,15 +194,14 @@ object UrlTester {
             UrlSummary.StreamFailed)
         }
         .run()
-      apply(testedUrls = Set.empty, httpQueue, summary, None)
+      apply(testedUrls = Set.empty, httpQueue, summary)
     }
   }
 
   private def apply(
       testedUrls: Set[String],
       httpQueue: ActorRef[QueueMessages],
-      summary: ActorRef[UrlSummary.Messages],
-      replyTo: Option[ActorRef[UrlSummary.Report]] = None): Behavior[Messages] =
+      summary: ActorRef[UrlSummary.Messages]): Behavior[Messages] =
     Behaviors.receiveMessagePartial {
       case Url(referringFile, url) =>
         summary ! UrlSummary.UrlCount(url, referringFile)

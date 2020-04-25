@@ -29,7 +29,7 @@ inThisBuild(
   Seq(
     organization := "net.runne",
     organizationHomepage := Some(url("https://github.com/ennru/")),
-    licenses += ("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0")),
+    licenses += ("Apache-2.0", url("https://www.apache.org/licenses/LICENSE-2.0")),
     homepage := Some(url("https://github.com/ennru/site-link-validator")),
     scmInfo := Some(ScmInfo(url("https://github.com/ennru/site-link-validator"), "git@github.com:ennru/site-link-validator.git")),
     developers += Developer("contributors",
@@ -38,7 +38,7 @@ inThisBuild(
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
     scalafmtOnCompile := true,
     testOptions in Test += Tests.Argument("-oDF"),
-    scalaVersion := "2.13.1",
+    scalaVersion := "2.13.2",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
