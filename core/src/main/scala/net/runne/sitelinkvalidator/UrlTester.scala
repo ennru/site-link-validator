@@ -70,7 +70,7 @@ object UrlSummary {
       status.toList
         .filter {
           case (url, status) =>
-            status != StatusCodes.OK && status != StatusCodes.MovedPermanently
+            status != StatusCodes.OK && status != StatusCodes.MovedPermanently && status != StatusCodes.SeeOther
         }
         .sortBy {
           case (url, status) =>
