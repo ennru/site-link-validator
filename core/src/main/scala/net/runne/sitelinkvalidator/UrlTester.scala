@@ -3,12 +3,12 @@ package net.runne.sitelinkvalidator
 import java.nio.file.Path
 
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ ActorRef, Behavior }
+import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.Location
 import akka.stream.typed.scaladsl.{ ActorSink, ActorSource }
-import akka.stream.{ OverflowStrategy, SystemMaterializer }
+import akka.stream.{ Materializer, OverflowStrategy, SystemMaterializer }
 
 import scala.util.{ Failure, Success }
 
@@ -158,34 +158,36 @@ object UrlTester {
 
   def apply(): Behavior[Messages] = {
     Behaviors.setup { context =>
-      implicit val system = context.system
-      implicit val ec = context.executionContext
-//      val cs = CoordinatedShutdown(context.system)
-//      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
-//        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
-//      }
+      implicit val system: ActorSystem[Nothing] = context.system
+      implicit val mat: Materializer = SystemMaterializer(context.system).materializer
+      //      val cs = CoordinatedShutdown(context.system)
+      //      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
+      //        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
+      //      }
 
       val summary: ActorRef[UrlSummary.Messages] = context.spawn(UrlSummary.apply(), "summary")
       val httpQueue: ActorRef[QueueMessages] = ActorSource
-        .actorRef[QueueMessages]({
+        .actorRef[QueueMessages](completionMatcher = {
           case QueueShutdown =>
         }, failureMatcher = PartialFunction.empty, bufferSize = 5000, OverflowStrategy.dropTail)
         .collect {
           case u: QueueUrl => u
         }
-        .mapAsync(20) {
-          case QueueUrl(origin, url) =>
+        .map {
+          case qUrl @ QueueUrl(origin, url) =>
             val request = HttpRequest(HttpMethods.HEAD, url)
-            Http(context.system).singleRequest(request).transform {
-              case Success(res) =>
-                res.entity.discardBytes(SystemMaterializer(context.system).materializer)
-                val redirectUri = res.headers.collectFirst {
-                  case loc: Location => loc.uri
-                }
-                Success(UrlSummary.UrlResult(url, res.status, origin, redirectUri))
-              case Failure(res) =>
-                Success(UrlSummary.UrlError(url, res, origin))
+            request -> qUrl
+        }
+        .via(Http().superPool())
+        .map {
+          case (Success(res), QueueUrl(origin, url)) =>
+            res.entity.discardBytes()
+            val redirectUri = res.headers.collectFirst {
+              case loc: Location => loc.uri
             }
+            UrlSummary.UrlResult(url, res.status, origin, redirectUri)
+          case (Failure(res), QueueUrl(origin, url)) =>
+            UrlSummary.UrlError(url, res, origin)
         }
         .to {
           ActorSink.actorRef[UrlSummary.Messages](
