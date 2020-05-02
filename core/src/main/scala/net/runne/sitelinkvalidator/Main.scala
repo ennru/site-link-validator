@@ -5,13 +5,27 @@ import java.nio.file.{ Path, Paths }
 import akka.actor.BootstrapSetup
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{ Config, ConfigFactory }
 
 import scala.jdk.CollectionConverters._
 
 object Main extends App {
 
-  val config = ConfigFactory.load().getConfig("site-link-validator")
+  if (args.length == 1 && !args(0).startsWith("--")) {
+    val f = Paths.get(args(0)).toFile
+    if (f.isFile) {
+      new Validator(ConfigFactory.parseFile(f)).report()
+    } else {
+      println(s"can't read [${f.toString}]")
+    }
+  } else {
+    println("specify a HOCON file with a section `site-link-validator`")
+  }
+}
+
+class Validator(appConfig: Config) {
+
+  val config = appConfig.withFallback(ConfigFactory.load()).resolve().getConfig("site-link-validator")
 
   val rootDir = {
     val dirStr = config.getString("root-dir")
@@ -37,7 +51,7 @@ object Main extends App {
 
   val nonHttpsWhitelist = config.getStringList("non-https-whitelist").asScala.toSeq
 
-  report(rootDir, startFile)
+  def report(): Unit = report(rootDir, startFile)
 
   trait Messages
 
@@ -51,6 +65,8 @@ object Main extends App {
     val file = dir.resolve(initialFile)
     val exists = file.toFile.exists()
     require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
+    println(
+      s"checking links starting from [${file.toAbsolutePath.toString}] with root [${dir.toAbsolutePath.toString}]")
     val ignoreMissingLocalFileFilter = config.getString("ignore-missing-local-files-regex").r
 
     def main(): Behavior[Messages] =
