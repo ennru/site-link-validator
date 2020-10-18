@@ -26,9 +26,11 @@ object UrlSummary {
     }
 
     def testResult(res: UrlResult): Report = {
-      copy(status = status.updated(res.url, res.status), redirectTo = res.redirected.fold(redirectTo) { uri =>
-        redirectTo.updated(res.url, uri)
-      })
+      copy(
+        status = status.updated(res.url, res.status),
+        redirectTo = res.redirected.fold(redirectTo) { uri =>
+          redirectTo.updated(res.url, uri)
+        })
     }
 
     def testResult(res: UrlError): Report = {
@@ -37,55 +39,47 @@ object UrlSummary {
 
     def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
       Seq("## Top linked pages") ++
-      topPages(limit).flatMap {
-        case (files, url, status) =>
-          Seq(s"${files.size} links to $url   (${status.map(_.toString).getOrElse("")})") ++ {
-            if (status.contains(StatusCodes.OK)) Seq()
-            else listFiles(files, rootDir, filesPerUrl)
-          }
+      topPages(limit).flatMap { case (files, url, status) =>
+        Seq(s"${files.size} links to $url   (${status.map(_.toString).getOrElse("")})") ++ {
+          if (status.contains(StatusCodes.OK)) Seq()
+          else listFiles(files, rootDir, filesPerUrl)
+        }
       } ++
       Seq("", "## Non-HTTP OK pages") ++
-      nonOkPages.flatMap {
-        case (url, status, files) =>
-          Seq(s"$url status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
+      nonOkPages.flatMap { case (url, status, files) =>
+        Seq(s"$url status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Redirected URLs") ++
-      redirectPages.flatMap {
-        case ((url, location), files) =>
-          Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
+      redirectPages.flatMap { case ((url, location), files) =>
+        Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Non-https pages") ++
       urlReferrers.toSeq
-        .filter {
-          case (url, files) => url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
+        .filter { case (url, files) =>
+          url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
         }
         .sortBy(_._1)
-        .flatMap {
-          case (url, files) =>
-            Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
+        .flatMap { case (url, files) =>
+          Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
         }
     }
 
     private def nonOkPages = {
       status.toList
-        .filter {
-          case (url, status) =>
-            status != StatusCodes.OK && status != StatusCodes.MovedPermanently && status != StatusCodes.SeeOther
+        .filter { case (url, status) =>
+          status != StatusCodes.OK && status != StatusCodes.MovedPermanently && status != StatusCodes.SeeOther
         }
-        .sortBy {
-          case (url, status) =>
-            (status.intValue(), url)
+        .sortBy { case (url, status) =>
+          (status.intValue(), url)
         }
-        .map {
-          case (url, status) =>
-            (url, status, urlReferrers.getOrElse(url, Set.empty))
+        .map { case (url, status) =>
+          (url, status, urlReferrers.getOrElse(url, Set.empty))
         }
     }
 
     private def redirectPages = {
-      redirectTo.toList.map {
-        case (url, location) =>
-          (url, location) -> urlReferrers.getOrElse(url, Set.empty)
+      redirectTo.toList.map { case (url, location) =>
+        (url, location) -> urlReferrers.getOrElse(url, Set.empty)
       }
     }
 
@@ -97,8 +91,8 @@ object UrlSummary {
     }
 
     private def topPages(limit: Int) = {
-      urlReferrers.toSeq.sortBy(-_._2.size).take(limit).map {
-        case (url, files) => (files, url, status.get(url))
+      urlReferrers.toSeq.sortBy(-_._2.size).take(limit).map { case (url, files) =>
+        (files, url, status.get(url))
       }
     }
   }
@@ -167,23 +161,25 @@ object UrlTester {
 
       val summary: ActorRef[UrlSummary.Messages] = context.spawn(UrlSummary.apply(), "summary")
       val httpQueue: ActorRef[QueueMessages] = ActorSource
-        .actorRef[QueueMessages](completionMatcher = {
-          case QueueShutdown =>
-        }, failureMatcher = PartialFunction.empty, bufferSize = 5000, OverflowStrategy.dropTail)
-        .collect {
-          case u: QueueUrl => u
+        .actorRef[QueueMessages](
+          completionMatcher = { case QueueShutdown =>
+          },
+          failureMatcher = PartialFunction.empty,
+          bufferSize = 5000,
+          OverflowStrategy.dropTail)
+        .collect { case u: QueueUrl =>
+          u
         }
-        .map {
-          case qUrl @ QueueUrl(origin, url) =>
-            val request = HttpRequest(HttpMethods.HEAD, url)
-            request -> qUrl
+        .map { case qUrl @ QueueUrl(origin, url) =>
+          val request = HttpRequest(HttpMethods.HEAD, url)
+          request -> qUrl
         }
         .via(Http().superPool())
         .map {
           case (Success(res), QueueUrl(origin, url)) =>
             res.entity.discardBytes()
-            val redirectUri = res.headers.collectFirst {
-              case loc: Location => loc.uri
+            val redirectUri = res.headers.collectFirst { case loc: Location =>
+              loc.uri
             }
             UrlSummary.UrlResult(url, res.status, origin, redirectUri)
           case (Failure(res), QueueUrl(origin, url)) =>
@@ -218,11 +214,10 @@ object UrlTester {
     }
 
   private def shuttingDown(reportTo: ActorRef[UrlSummary.Report]): Behavior[Messages] =
-    Behaviors.receivePartial {
-      case (context, Report(report)) =>
-        Http(context.system).shutdownAllConnectionPools()
-        reportTo ! report
-        Behaviors.stopped
+    Behaviors.receivePartial { case (context, Report(report)) =>
+      Http(context.system).shutdownAllConnectionPools()
+      reportTo ! report
+      Behaviors.stopped
     }
 
 }

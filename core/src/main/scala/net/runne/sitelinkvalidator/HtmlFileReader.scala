@@ -66,10 +66,9 @@ object HtmlFileReader {
           case (prefix, path) if link.startsWith(prefix) =>
             (prefix, path)
         }
-        .fold(noMapping) {
-          case (prefix, path) =>
-            val patchedLink = link.substring(prefix.length)
-            checkLocalLink(file, path + patchedLink)
+        .fold(noMapping) { case (prefix, path) =>
+          val patchedLink = link.substring(prefix.length)
+          checkLocalLink(file, path + patchedLink)
         }
     }
 

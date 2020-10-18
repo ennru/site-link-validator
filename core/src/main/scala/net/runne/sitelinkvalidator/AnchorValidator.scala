@@ -39,32 +39,27 @@ object AnchorValidator {
     def report(rootDir: Path, ignoreFilter: Regex, limit: Int = 5): immutable.Seq[String] = {
       Seq("## Anchors") ++
       data
-        .map {
-          case (path, anchors) =>
-            val unseen = anchors.requested.map(_._2) -- anchors.seen
-            val relFile = rootDir.relativize(path).toString
-            (path, anchors, unseen, relFile)
+        .map { case (path, anchors) =>
+          val unseen = anchors.requested.map(_._2) -- anchors.seen
+          val relFile = rootDir.relativize(path).toString
+          (path, anchors, unseen, relFile)
         }
-        .filter {
-          case (path, anchors, unseen, relFile) =>
-            unseen.nonEmpty && ignoreFilter.findFirstMatchIn(relFile).isEmpty
+        .filter { case (path, anchors, unseen, relFile) =>
+          unseen.nonEmpty && ignoreFilter.findFirstMatchIn(relFile).isEmpty
         }
-        .flatMap {
-          case (path, anchors, unseen, relFile) =>
-            Seq(relFile.toString, "requested") ++
+        .flatMap { case (path, anchors, unseen, relFile) =>
+          Seq(relFile.toString, "requested") ++
             unseen.map(a => s" - $a") ++
             Seq("seen") ++
             anchors.seen.toList.sorted.map(a => s" - $a") ++
             Seq("requested in") ++
             anchors.requested
-              .filter {
-                case (p, an) =>
-                  unseen.contains(an)
+              .filter { case (p, an) =>
+                unseen.contains(an)
               }
               .take(limit)
-              .map {
-                case (p, an) =>
-                  s" - ${rootDir.relativize(p)} ${path.getFileName}#$an"
+              .map { case (p, an) =>
+                s" - ${rootDir.relativize(p)} ${path.getFileName}#$an"
               } ++
             Seq("")
         }

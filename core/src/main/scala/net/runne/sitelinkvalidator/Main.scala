@@ -94,9 +94,8 @@ class Validator(appConfig: Config) {
               println(
                 reportSummary
                   .errorReport(dir)
-                  .map {
-                    case (file, error) =>
-                      s"$file triggered $error"
+                  .map { case (file, error) =>
+                    s"$file triggered $error"
                   }
                   .mkString("\n"))
               println()
@@ -104,9 +103,8 @@ class Validator(appConfig: Config) {
               println(
                 reportSummary
                   .missingReport(dir, ignoreMissingLocalFileFilter)
-                  .map {
-                    case (file, referrer) =>
-                      s"$file referenced from $referrer"
+                  .map { case (file, referrer) =>
+                    s"$file referenced from $referrer"
                   }
                   .mkString("\n"))
               println()
@@ -137,6 +135,6 @@ class Validator(appConfig: Config) {
       }
 
     val cld = getClass.getClassLoader
-    ActorSystem(main, "site-link-validator", BootstrapSetup().withClassloader(cld))
+    ActorSystem(main(), "site-link-validator", BootstrapSetup().withClassloader(cld))
   }
 }

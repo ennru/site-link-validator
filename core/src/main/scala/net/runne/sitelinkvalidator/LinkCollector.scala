@@ -32,7 +32,7 @@ object LinkCollector {
         }
     }
 
-    val self = Promise[ActorRef[FileLocation]]
+    val self = Promise[ActorRef[FileLocation]]()
     val collector = ActorSource
       .actorRef[FileLocation](
         completionMatcher = PartialFunction.empty,
@@ -41,9 +41,8 @@ object LinkCollector {
         OverflowStrategy.fail)
       // termination of this stream signals end of processing
       .idleTimeout(500.millis)
-      .map {
-        case FileLocation(_, file) =>
-          findHtml(file.normalize)
+      .map { case FileLocation(_, file) =>
+        findHtml(file.normalize)
       }
       .via(unique)
       .filter(_.toFile.isFile)

@@ -36,10 +36,9 @@ object Reporter {
       copy(urlFailures = urlFailures + e)
 
     def errorReport(rootDir: Path): Seq[(String, Throwable)] = {
-      errors.toSeq.sortBy(_.file.toString).map {
-        case FileErrored(file, e) =>
-          val relFile = rootDir.relativize(file).toString
-          relFile -> e
+      errors.toSeq.sortBy(_.file.toString).map { case FileErrored(file, e) =>
+        val relFile = rootDir.relativize(file).toString
+        relFile -> e
       }
     }
 
@@ -49,13 +48,11 @@ object Reporter {
         .map { missing =>
           (rootDir.relativize(missing.file).toString, missing)
         }
-        .filter {
-          case (relFile, m) =>
-            ignoreFilter.findFirstMatchIn(relFile).isEmpty
+        .filter { case (relFile, m) =>
+          ignoreFilter.findFirstMatchIn(relFile).isEmpty
         }
-        .map {
-          case (relFile, missing) =>
-            relFile -> rootDir.relativize(missing.origin)
+        .map { case (relFile, missing) =>
+          relFile -> rootDir.relativize(missing.origin)
         }
     }
 
