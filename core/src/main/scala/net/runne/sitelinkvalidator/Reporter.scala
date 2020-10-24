@@ -58,7 +58,7 @@ object Reporter {
 
     def urlFailureReport(rootDir: Path): immutable.Seq[String] = {
       urlFailures.toIndexedSeq.sortBy(_.url.toString).map { m =>
-        s"URL failure ${m.responseCode} ${m.url} (referenced from ${rootDir.relativize(m.origin)})"
+        s"URL failure ${m.responseCode} `${m.url}`[${m.url}] (referenced from ${rootDir.relativize(m.origin)})"
       }
     }
 

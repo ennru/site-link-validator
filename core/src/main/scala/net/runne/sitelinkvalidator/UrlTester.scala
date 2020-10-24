@@ -10,6 +10,7 @@ import akka.http.scaladsl.model.headers.Location
 import akka.stream.typed.scaladsl.{ ActorSink, ActorSource }
 import akka.stream.{ Materializer, OverflowStrategy, SystemMaterializer }
 
+import scala.concurrent.ExecutionContext
 import scala.util.{ Failure, Success }
 
 object UrlSummary {
@@ -40,18 +41,18 @@ object UrlSummary {
     def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
       Seq("## Top linked pages") ++
       topPages(limit).flatMap { case (files, url, status) =>
-        Seq(s"${files.size} links to $url   (${status.map(_.toString).getOrElse("")})") ++ {
+        Seq(s"${files.size} links to `$url`   (${status.map(_.toString).getOrElse("")})") ++ {
           if (status.contains(StatusCodes.OK)) Seq()
           else listFiles(files, rootDir, filesPerUrl)
         }
       } ++
       Seq("", "## Non-HTTP OK pages") ++
       nonOkPages.flatMap { case (url, status, files) =>
-        Seq(s"$url status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
+        Seq(s"`$url` status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Redirected URLs") ++
       redirectPages.flatMap { case ((url, location), files) =>
-        Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
+        Seq(s"`$url` should be", s"`$location`") ++ listFiles(files, rootDir, filesPerUrl)
       } ++
       Seq("", "## Non-https pages") ++
       urlReferrers.toSeq
@@ -60,7 +61,7 @@ object UrlSummary {
         }
         .sortBy(_._1)
         .flatMap { case (url, files) =>
-          Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
+          Seq(s"`$url`") ++ listFiles(files, rootDir, filesPerUrl)
         }
     }
 
@@ -140,13 +141,16 @@ object UrlTester {
 
   final case class Url(referringFile: Path, url: String) extends Messages
 
+  final case class UrlRetry(referringFile: Path, url: String, method: HttpMethod) extends Messages
+
   final case class RequestReport(report: ActorRef[UrlSummary.Report]) extends Messages
 
   final case class Report(report: UrlSummary.Report) extends Messages
 
   private sealed trait QueueMessages
 
-  private final case class QueueUrl(referringFile: Path, url: String) extends QueueMessages
+  private final case class QueueUrl(referringFile: Path, url: String, method: HttpMethod = HttpMethods.HEAD)
+      extends QueueMessages
 
   private object QueueShutdown extends QueueMessages
 
@@ -154,6 +158,7 @@ object UrlTester {
     Behaviors.setup { context =>
       implicit val system: ActorSystem[Nothing] = context.system
       implicit val mat: Materializer = SystemMaterializer(context.system).materializer
+      implicit val ec: ExecutionContext = system.executionContext
       //      val cs = CoordinatedShutdown(context.system)
       //      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
       //        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
@@ -170,20 +175,29 @@ object UrlTester {
         .collect { case u: QueueUrl =>
           u
         }
-        .map { case qUrl @ QueueUrl(origin, url) =>
-          val request = HttpRequest(HttpMethods.HEAD, url)
+        .map { case qUrl @ QueueUrl(origin, url, method) =>
+          val request = HttpRequest(method, url)
           request -> qUrl
         }
         .via(Http().superPool())
-        .map {
-          case (Success(res), QueueUrl(origin, url)) =>
-            res.entity.discardBytes()
-            val redirectUri = res.headers.collectFirst { case loc: Location =>
-              loc.uri
-            }
-            UrlSummary.UrlResult(url, res.status, origin, redirectUri)
-          case (Failure(res), QueueUrl(origin, url)) =>
-            UrlSummary.UrlError(url, res, origin)
+        .mapConcat {
+          case (Success(res), QueueUrl(origin, url, HttpMethods.HEAD)) if res.status == StatusCodes.MethodNotAllowed =>
+            context.self ! UrlRetry(origin, url, HttpMethods.GET)
+            Seq.empty
+          case (Success(res), QueueUrl(origin, url, method)) =>
+            // Workaround for https://github.com/akka/akka-http/issues/3530
+            if (method != HttpMethods.HEAD) res.discardEntityBytes()
+            val redirectUri = res.headers
+              .collectFirst { case loc: Location =>
+                loc.uri
+              }
+              .filterNot { uri =>
+                // don't report redirects adding/removing just the trailing slash
+                url == uri.toString() + "/" || url + "/" == uri.toString()
+              }
+            Seq(UrlSummary.UrlResult(url, res.status, origin, redirectUri))
+          case (Failure(res), QueueUrl(origin, url, _)) =>
+            Seq(UrlSummary.UrlError(url, res, origin))
         }
         .to {
           ActorSink.actorRef[UrlSummary.Messages](
@@ -201,6 +215,9 @@ object UrlTester {
       httpQueue: ActorRef[QueueMessages],
       summary: ActorRef[UrlSummary.Messages]): Behavior[Messages] =
     Behaviors.receiveMessagePartial {
+      case UrlRetry(referringFile, url, method) =>
+        httpQueue ! QueueUrl(referringFile, url, method)
+        Behaviors.same
       case Url(referringFile, url) =>
         summary ! UrlSummary.UrlCount(url, referringFile)
         if (!testedUrls.contains(url)) {

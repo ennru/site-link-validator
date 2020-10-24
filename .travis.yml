@@ -1,5 +1,7 @@
+version: ~> 1.0
+
 language: scala
-scala: 2.13.2
+scala: [2.13.3]
 
 before_install:
   - git fetch --tags
