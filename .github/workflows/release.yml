@@ -37,7 +37,7 @@ jobs:
             coursier-
 
       - name: GPG import
-        run: openssl aes-256-cbc -pbkdf2 -k "${{ secrets.PGP_PASSPHRASE }}" -in private-key.pem.enc -out private-key.pem -d && gpg --import --no-tty --batch --yes private-key.pem
+        run: openssl aes-256-cbc -pbkdf2 -k "${{ secrets.PGP_PASSPHRASE }}" -in .github/private-key.pem.enc -out private-key.pem -d && gpg --import --no-tty --batch --yes private-key.pem
 
       - name: sbt ci-release
         run: sbt ci-release
