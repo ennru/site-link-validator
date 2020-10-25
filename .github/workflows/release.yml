@@ -18,23 +18,8 @@ jobs:
         with:
           java-version: 1.11
 
-      - name: Cache SBT
-        uses: actions/cache@v1
-        with:
-          path: ~/.sbt
-          key: sbt-${{ hashFiles('project/build.properties') }}
-          restore-keys: |
-            sbt-${{ hashFiles('project/build.properties') }}
-            sbt-
-
       - name: Cache Coursier cache
-        uses: actions/cache@v2
-        with:
-          path: ~/.cache/coursier
-          key: coursier-${{ hashFiles('**/build.sbt', 'project/**') }}
-          restore-keys: |
-            coursier-${{ hashFiles('**/build.sbt', 'project/**') }}
-            coursier-
+        uses: coursier/cache-action@v5
 
       - name: sbt ci-release
         run: sbt ci-release
