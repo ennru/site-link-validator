@@ -1,9 +1,9 @@
 name: K8s Experiment
 on:
   push:
-    branches: [main]
+    branches: [master]
   pull_request_target:
-    branches: [main]
+    branches: [master]
 
 jobs:
   build:
