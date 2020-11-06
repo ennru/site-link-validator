@@ -9,3 +9,5 @@ The configuration file identifies a page root and allows to disable checks for c
 See [application.conf](core/src/main/resources/application.conf) for examples.
 
 This software is open source and released under [Apache License V2](LICENSE).
+
+Trigger build.
