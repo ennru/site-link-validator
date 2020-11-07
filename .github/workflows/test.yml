@@ -28,5 +28,11 @@ jobs:
       - name: Cache Coursier cache
         uses: coursier/cache-action@v5
 
+      - name: sbt compile
+        run: sbt --client Test/compile
+
       - name: sbt test
-        run: sbt test
+        run: sbt --client test
+
+      - name: sbt shutdown
+        run: sbt --client shutdown
