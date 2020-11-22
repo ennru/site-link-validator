@@ -4,14 +4,21 @@ on:
     types: [published]
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-18.04
     steps:
-      - uses: actions/checkout@v2.3.3
-      - name: Fetch tags
-        run: git fetch --depth=100 origin +refs/tags/*:refs/tags/*
-      - uses: olafurpg/setup-scala@v10
-      - uses: olafurpg/setup-gpg@v3
-      - run: sbt ci-release
+      - name: Checkout
+        uses: actions/checkout@v2.3.4
+
+      - name: Set up JDK 11
+        uses: olafurpg/setup-scala@v10
+        with:
+          java-version: adopt@1.11.0-9
+
+      - name: Set up GPG
+        uses: olafurpg/setup-gpg@v3
+
+      - name: Release
+        run: sbt ci-release
         env:
           PGP_PASSPHRASE: ${{ secrets.PGP_PASSPHRASE }}
           PGP_SECRET: ${{ secrets.PGP_SECRET }}

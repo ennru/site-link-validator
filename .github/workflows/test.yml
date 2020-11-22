@@ -1,18 +1,18 @@
 name: Build and Test
 on:
   push:
-    branches: [master]
+    branches: [master, main]
   pull_request_target:
-    branches: [master]
+    branches: [master, main]
 
 jobs:
-  build:
+  test:
     runs-on: ubuntu-18.04
     steps:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          fetch-depth: 10
+          fetch-depth: 100
 
       - name: Fetch tags
         run: |
@@ -27,10 +27,10 @@ jobs:
       - name: Cache Coursier cache
         uses: coursier/cache-action@v5
 
-      - name: scalafmt
+      - name: scalafmtCheckAll
         run: sbt --client scalafmtCheckAll
 
-      - name: compile
+      - name: Test/compile
         run: sbt --client Test/compile
 
       - name: test
