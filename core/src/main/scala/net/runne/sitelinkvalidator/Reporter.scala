@@ -62,6 +62,28 @@ object Reporter {
       }
     }
 
+    def report(dir: Path, ignoreMissingLocalFileFilter: Regex): Seq[String] = {
+      {
+        if (errors.nonEmpty)
+          Seq("", "## Errors") ++
+          errorReport(dir).map { case (file, error) =>
+            s"$file triggered $error"
+          }
+        else Seq.empty
+      } ++ {
+        if (missing.nonEmpty)
+          Seq("", "## Missing local files") ++
+          missingReport(dir, ignoreMissingLocalFileFilter).map { case (file, referrer) =>
+            s"$file referenced from $referrer"
+          }
+        else Seq.empty
+      } ++ {
+        if (urlFailures.nonEmpty)
+          Seq("", "## URL Errors") ++
+          urlFailureReport(dir)
+        else Seq.empty
+      }
+    }
   }
 
   def apply(): Behavior[Messages] = apply(ReportSummary())

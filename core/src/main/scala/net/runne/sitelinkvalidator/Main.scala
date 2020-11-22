@@ -89,27 +89,7 @@ class Validator(appConfig: Config) {
               Behaviors.same
 
             case Report(reportSummary) =>
-              println()
-              println("## Errors")
-              println(
-                reportSummary
-                  .errorReport(dir)
-                  .map { case (file, error) =>
-                    s"$file triggered $error"
-                  }
-                  .mkString("\n"))
-              println()
-              println("## Missing local files")
-              println(
-                reportSummary
-                  .missingReport(dir, ignoreMissingLocalFileFilter)
-                  .map { case (file, referrer) =>
-                    s"$file referenced from $referrer"
-                  }
-                  .mkString("\n"))
-              println()
-              println("## URL Errors")
-              println(reportSummary.urlFailureReport(dir).mkString("\n"))
+              print(reportSummary.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
               Behaviors.same
 
             case AnchorReport(report) =>

@@ -45,24 +45,33 @@ object UrlSummary {
           if (status.contains(StatusCodes.OK)) Seq()
           else listFiles(files, rootDir, filesPerUrl)
         }
-      } ++
-      Seq("", "## Non-HTTP OK pages") ++
-      nonOkPages.flatMap { case (url, status, files) =>
-        Seq(s"`$url` status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
-      } ++
-      Seq("", "## Redirected URLs") ++
-      redirectPages.flatMap { case ((url, location), files) =>
-        Seq(s"`$url` should be", s"`$location`") ++ listFiles(files, rootDir, filesPerUrl)
-      } ++
-      Seq("", "## Non-https pages") ++
-      urlReferrers.toSeq
-        .filter { case (url, files) =>
-          url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
-        }
-        .sortBy(_._1)
-        .flatMap { case (url, files) =>
-          Seq(s"`$url`") ++ listFiles(files, rootDir, filesPerUrl)
-        }
+      } ++ {
+        if (nonOkPages.nonEmpty)
+          Seq("", "## Non-HTTP OK pages") ++
+          nonOkPages.flatMap { case (url, status, files) =>
+            Seq(s"`$url` status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
+          }
+        else Seq.empty
+      } ++ {
+        if (redirectPages.nonEmpty)
+          Seq("", "## Redirected URLs") ++
+          redirectPages.flatMap { case ((url, location), files) =>
+            Seq(s"`$url` should be", s"`$location`") ++ listFiles(files, rootDir, filesPerUrl)
+          }
+        else Seq.empty
+      } ++ {
+        val nonHttpsPages = urlReferrers.toSeq
+          .filter { case (url, files) =>
+            url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
+          }
+          .sortBy(_._1)
+        if (nonHttpsPages.nonEmpty)
+          Seq("", "## Non-https pages") ++
+          nonHttpsPages.flatMap { case (url, files) =>
+            Seq(s"`$url`") ++ listFiles(files, rootDir, filesPerUrl)
+          }
+        else Seq.empty
+      }
     }
 
     private def nonOkPages = {

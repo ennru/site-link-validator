@@ -37,8 +37,7 @@ object AnchorValidator {
       copy(data = data.updated(file, data.getOrElse(file, Anchors()).addRequested(origin -> anchor)))
 
     def report(rootDir: Path, ignoreFilter: Regex, limit: Int = 5): immutable.Seq[String] = {
-      Seq("## Anchors") ++
-      data
+      val items = data
         .map { case (path, anchors) =>
           val unseen = anchors.requested.map(_._2) -- anchors.seen
           val relFile = rootDir.relativize(path).toString
@@ -47,7 +46,9 @@ object AnchorValidator {
         .filter { case (path, anchors, unseen, relFile) =>
           unseen.nonEmpty && ignoreFilter.findFirstMatchIn(relFile).isEmpty
         }
-        .flatMap { case (path, anchors, unseen, relFile) =>
+      if (items.nonEmpty)
+        Seq("", "## Anchors") ++
+        items.flatMap { case (path, anchors, unseen, relFile) =>
           Seq(relFile.toString, "requested") ++
             unseen.map(a => s" - $a") ++
             Seq("seen") ++
@@ -63,6 +64,7 @@ object AnchorValidator {
               } ++
             Seq("")
         }
+      else Seq.empty
     }
   }
 
