@@ -2,36 +2,38 @@ name: Build and Test
 on:
   push:
     branches: [master]
-  pull_request:
+  pull_request_target:
     branches: [master]
 
 jobs:
   build:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        jdk-version: [1.8, 1.11]
+    runs-on: ubuntu-18.04
     steps:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-          fetch-depth: 100
+          fetch-depth: 10
 
       - name: Fetch tags
-        run: git fetch --depth=100 origin +refs/tags/*:refs/tags/*
+        run: |
+          git fetch --depth=100 origin +refs/tags/*:refs/tags/*
+          git log --oneline -10
 
-      - name: Set up JDK ${{ matrix.node }}
-        uses: actions/setup-java@v1
+      - name: Set up JDK 11
+        uses: olafurpg/setup-scala@v10
         with:
-          java-version: ${{ matrix.jdk-version }}
+          java-version: adopt@1.11.0-9
 
       - name: Cache Coursier cache
         uses: coursier/cache-action@v5
 
-      - name: sbt compile
+      - name: scalafmt
+        run: sbt --client scalafmtCheckAll
+
+      - name: compile
         run: sbt --client Test/compile
 
-      - name: sbt test
+      - name: test
         run: sbt --client test
 
       - name: sbt shutdown
