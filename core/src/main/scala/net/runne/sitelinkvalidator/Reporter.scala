@@ -28,6 +28,9 @@ object Reporter {
       errors: Set[FileErrored] = Set.empty,
       missing: Set[Missing] = Set.empty,
       urlFailures: Set[UrlFailed] = Set.empty) {
+
+    def hasFailures: Boolean = errors.nonEmpty || missing.nonEmpty || urlFailures.nonEmpty
+
     def addError(e: FileErrored): ReportSummary = copy(errors = errors + e)
 
     def addMissing(e: Missing): ReportSummary = copy(missing = missing + e)

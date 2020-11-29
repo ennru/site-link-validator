@@ -19,12 +19,21 @@ object UrlSummary {
       urlReferrers: Map[String, Set[Path]] = Map.empty,
       status: Map[String, StatusCode] = Map.empty,
       redirectTo: Map[String, Uri] = Map.empty) {
+
     def contains(url: String) = urlReferrers.contains(url)
 
     def count(url: String, referringFile: Path): Report = {
       val files = urlReferrers.getOrElse(url, Set.empty)
       copy(urlReferrers = urlReferrers.updated(url, files + referringFile))
     }
+
+    def hasFailures: Boolean = status.values.exists(_.isFailure)
+
+    def nonHttpsUrls(nonHttpsWhitelist: Seq[String]) = urlReferrers.toSeq
+      .filter { case (url, files) =>
+        url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
+      }
+      .sortBy(_._1)
 
     def testResult(res: UrlResult): Report = {
       copy(
@@ -46,48 +55,40 @@ object UrlSummary {
           else listFiles(files, rootDir, filesPerUrl)
         }
       } ++ {
-        if (nonOkPages.nonEmpty)
-          Seq("", "## Non-HTTP OK pages") ++
-          nonOkPages.flatMap { case (url, status, files) =>
+        if (failureResponses.nonEmpty)
+          Seq("", "## HTTP failure response") ++
+          failureResponses.flatMap { case (url, status, files) =>
             Seq(s"`$url` status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
       } ++ {
-        if (redirectPages.nonEmpty)
+        if (redirectResponses.nonEmpty)
           Seq("", "## Redirected URLs") ++
-          redirectPages.flatMap { case ((url, location), files) =>
+          redirectResponses.flatMap { case ((url, location), files) =>
             Seq(s"`$url` should be", s"`$location`") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
       } ++ {
-        val nonHttpsPages = urlReferrers.toSeq
-          .filter { case (url, files) =>
-            url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
-          }
-          .sortBy(_._1)
-        if (nonHttpsPages.nonEmpty)
+        val nonHttps = nonHttpsUrls(nonHttpsWhitelist)
+        if (nonHttps.nonEmpty)
           Seq("", "## Non-https pages") ++
-          nonHttpsPages.flatMap { case (url, files) =>
+          nonHttps.flatMap { case (url, files) =>
             Seq(s"`$url`") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
       }
     }
 
-    private def nonOkPages = {
+    private def failureResponses = {
       status.toList
-        .filter { case (url, status) =>
-          status != StatusCodes.OK && status != StatusCodes.MovedPermanently && status != StatusCodes.SeeOther
-        }
-        .sortBy { case (url, status) =>
-          (status.intValue(), url)
-        }
+        .filter { case (url, status) => status.isFailure }
+        .sortBy { case (url, status) => (status.intValue(), url) }
         .map { case (url, status) =>
           (url, status, urlReferrers.getOrElse(url, Set.empty))
         }
     }
 
-    private def redirectPages = {
+    private def redirectResponses = {
       redirectTo.toList.map { case (url, location) =>
         (url, location) -> urlReferrers.getOrElse(url, Set.empty)
       }

@@ -61,6 +61,8 @@ class Validator(appConfig: Config) {
 
   case class AnchorReport(summary: AnchorValidator.Report) extends Messages
 
+  private var failFor = Vector.empty[String]
+
   def report(dir: Path, initialFile: String): Unit = {
     val file = dir.resolve(initialFile)
     val exists = file.toFile.exists()
@@ -86,10 +88,19 @@ class Validator(appConfig: Config) {
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
               print(summary.print(rootDir, nonHttpsWhitelist).mkString("\n"))
+              if (summary.hasFailures) {
+                failFor = failFor :+ "Failure responses found."
+              }
+              if (summary.nonHttpsUrls(nonHttpsWhitelist).nonEmpty) {
+                failFor = failFor :+ "Non-https URLs found (configure `non-https-whitelist` if needed)."
+              }
               Behaviors.same
 
             case Report(reportSummary) =>
               print(reportSummary.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
+              if (reportSummary.hasFailures) {
+                failFor = failFor :+ "Local errors encountered."
+              }
               Behaviors.same
 
             case AnchorReport(report) =>
@@ -110,6 +121,9 @@ class Validator(appConfig: Config) {
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
             case (_, Terminated(`anchorCollector`)) =>
+              if (failFor.nonEmpty) {
+                sys.error("Failing link validation for:\n" + failFor.mkString("\n"))
+              }
               Behaviors.stopped
           }
       }
