@@ -1,16 +1,14 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.Path
-
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
 import akka.http.scaladsl.Http
 import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.Location
+import akka.stream.OverflowStrategy
 import akka.stream.typed.scaladsl.{ ActorSink, ActorSource }
-import akka.stream.{ Materializer, OverflowStrategy, SystemMaterializer }
 
-import scala.concurrent.ExecutionContext
+import java.nio.file.Path
 import scala.util.{ Failure, Success }
 
 object UrlSummary {
@@ -29,9 +27,9 @@ object UrlSummary {
 
     def hasFailures: Boolean = status.values.exists(_.isFailure)
 
-    def nonHttpsUrls(nonHttpsWhitelist: Seq[String]) = urlReferrers.toSeq
+    def nonHttpsUrls(nonHttpsAccepted: Seq[String]) = urlReferrers.toSeq
       .filter { case (url, files) =>
-        url.startsWith("http://") && nonHttpsWhitelist.forall(white => !url.startsWith(white))
+        url.startsWith("http://") && nonHttpsAccepted.forall(white => !url.startsWith(white))
       }
       .sortBy(_._1)
 
@@ -47,7 +45,7 @@ object UrlSummary {
       copy(status = status.updated(res.url, StatusCodes.custom(-1, res.e.toString, "", false, false)))
     }
 
-    def print(rootDir: Path, nonHttpsWhitelist: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
+    def print(rootDir: Path, nonHttpsAccepted: Seq[String], limit: Int = 30, filesPerUrl: Int = 2): Seq[String] = {
       Seq("## Top linked pages") ++
       topPages(limit).flatMap { case (files, url, status) =>
         Seq(s"${files.size} links to `$url`   (${status.map(_.toString).getOrElse("")})") ++ {
@@ -69,7 +67,7 @@ object UrlSummary {
           }
         else Seq.empty
       } ++ {
-        val nonHttps = nonHttpsUrls(nonHttpsWhitelist)
+        val nonHttps = nonHttpsUrls(nonHttpsAccepted)
         if (nonHttps.nonEmpty)
           Seq("", "## Non-https pages") ++
           nonHttps.flatMap { case (url, files) =>
@@ -167,12 +165,6 @@ object UrlTester {
   def apply(): Behavior[Messages] = {
     Behaviors.setup { context =>
       implicit val system: ActorSystem[Nothing] = context.system
-      implicit val mat: Materializer = SystemMaterializer(context.system).materializer
-      implicit val ec: ExecutionContext = system.executionContext
-      //      val cs = CoordinatedShutdown(context.system)
-      //      cs.addTask(CoordinatedShutdown.PhaseServiceStop, "shut-down-client-http-pool") { () =>
-      //        Http(context.system).shutdownAllConnectionPools().map(_ => Done)(context.executionContext)
-      //      }
 
       val summary: ActorRef[UrlSummary.Messages] = context.spawn(UrlSummary.apply(), "summary")
       val httpQueue: ActorRef[QueueMessages] = ActorSource

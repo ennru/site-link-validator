@@ -10,11 +10,9 @@ import scala.util.matching.Regex
 
 object Reporter {
 
-  trait Messages
+  sealed trait Messages
 
   final case class UrlChecked(url: String) extends Messages
-
-  final case class UrlRedirect(url: String) extends Messages
 
   final case class UrlFailed(origin: Path, url: String, responseCode: Int) extends Messages
 
@@ -24,7 +22,7 @@ object Reporter {
 
   case class RequestReport(replyTo: ActorRef[ReportSummary]) extends Messages
 
-  case class ReportSummary(
+  final case class ReportSummary(
       errors: Set[FileErrored] = Set.empty,
       missing: Set[Missing] = Set.empty,
       urlFailures: Set[UrlFailed] = Set.empty) {

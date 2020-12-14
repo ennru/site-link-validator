@@ -23,7 +23,15 @@ object Main extends App {
   }
 }
 
+object Validator {
+  sealed trait Messages
+  final case class UrlReport(summary: UrlSummary.Report) extends Messages
+  final case class Report(summary: Reporter.ReportSummary) extends Messages
+  final case class AnchorReport(summary: AnchorValidator.Report) extends Messages
+}
+
 class Validator(appConfig: Config) {
+  import Validator._
 
   val config = appConfig.withFallback(ConfigFactory.load()).resolve().getConfig("site-link-validator")
 
@@ -34,6 +42,11 @@ class Validator(appConfig: Config) {
     require(f.exists() && f.isDirectory, s"The `root-dir` must be an existing directory (was [$dirStr])")
     dir
   }
+
+  val failForFailureResponse = config.getBoolean("fail-for.failure-response")
+  val failForLocalFailure = config.getBoolean("fail-for.local-failure")
+  val failForNonHttps = config.getBoolean("fail-for.non-https")
+
   val startFile = {
     val fStr = config.getString("start-file")
     val startFilePath = rootDir.resolve(fStr)
@@ -49,19 +62,16 @@ class Validator(appConfig: Config) {
     HtmlFileReader.Config(rootDir, linkMappings, config.getStringList("ignore-prefixes").asScala.toList)
   }
 
-  val nonHttpsWhitelist = config.getStringList("non-https-whitelist").asScala.toSeq
+  val nonHttpsAccepted =
+    (config.getStringList("non-https-accepted").asScala ++ config.getStringList("non-https-whitelist").asScala).toSeq
 
   def report(): Unit = report(rootDir, startFile)
 
-  trait Messages
-
-  case class UrlReport(summary: UrlSummary.Report) extends Messages
-
-  case class Report(summary: Reporter.ReportSummary) extends Messages
-
-  case class AnchorReport(summary: AnchorValidator.Report) extends Messages
-
   private var failFor = Vector.empty[String]
+
+  private def print(s: String): Unit = {
+    Console.print(s)
+  }
 
   def report(dir: Path, initialFile: String): Unit = {
     val file = dir.resolve(initialFile)
@@ -87,24 +97,24 @@ class Validator(appConfig: Config) {
         Behaviors
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
-              print(summary.print(rootDir, nonHttpsWhitelist).mkString("\n"))
-              if (summary.hasFailures) {
+              print(summary.print(rootDir, nonHttpsAccepted).mkString("\n"))
+              if (failForFailureResponse && summary.hasFailures) {
                 failFor = failFor :+ "Failure responses found."
               }
-              if (summary.nonHttpsUrls(nonHttpsWhitelist).nonEmpty) {
-                failFor = failFor :+ "Non-https URLs found (configure `non-https-whitelist` if needed)."
+              if (failForNonHttps && summary.nonHttpsUrls(nonHttpsAccepted).nonEmpty) {
+                failFor = failFor :+ "Non-https URLs found (configure `non-https-accepted` if needed)."
               }
               Behaviors.same
 
             case Report(reportSummary) =>
               print(reportSummary.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
-              if (reportSummary.hasFailures) {
+              if (failForLocalFailure && reportSummary.hasFailures) {
                 failFor = failFor :+ "Local errors encountered."
               }
               Behaviors.same
 
             case AnchorReport(report) =>
-              println(report.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
+              print(report.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
               Behaviors.same
           }
           .receiveSignal {

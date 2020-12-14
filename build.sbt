@@ -1,7 +1,7 @@
 import sbt._
 
 val AkkaVersion = "2.6.10"
-val AkkaHttpVersion = "10.2.1"
+val AkkaHttpVersion = "10.2.2"
 
 lazy val `site-link-validator` = project.in(file(".")).aggregate(core).settings(publish / skip := true)
 
@@ -32,7 +32,7 @@ inThisBuild(
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
     scalafmtOnCompile := true,
     testOptions in Test += Tests.Argument("-oDF"),
-    scalaVersion := "2.13.3",
+    scalaVersion := "2.13.4",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
