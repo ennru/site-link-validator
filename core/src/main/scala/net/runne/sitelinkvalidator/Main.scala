@@ -2,7 +2,7 @@ package net.runne.sitelinkvalidator
 
 import java.nio.file.{ Path, Paths }
 
-import akka.actor.BootstrapSetup
+import akka.actor.{ BootstrapSetup, CoordinatedShutdown }
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ ActorSystem, Behavior, Terminated }
 import com.typesafe.config.{ Config, ConfigFactory }
@@ -28,6 +28,8 @@ object Validator {
   final case class UrlReport(summary: UrlSummary.Report) extends Messages
   final case class Report(summary: Reporter.ReportSummary) extends Messages
   final case class AnchorReport(summary: AnchorValidator.Report) extends Messages
+
+  case object ValidatorErrorShutdownReason extends CoordinatedShutdown.Reason
 }
 
 class Validator(appConfig: Config) {
@@ -130,11 +132,14 @@ class Validator(appConfig: Config) {
               val replyTo = context.messageAdapter[AnchorValidator.Report](summary => AnchorReport(summary))
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
-            case (_, Terminated(`anchorCollector`)) =>
+            case (context, Terminated(`anchorCollector`)) =>
               if (failFor.nonEmpty) {
-                sys.error("Failing link validation for:\n" + failFor.mkString("\n"))
+                println("Failing link validation for:\n" + failFor.mkString("\n"))
+                CoordinatedShutdown(context.system).run(ValidatorErrorShutdownReason)
+                Behaviors.same
+              } else {
+                Behaviors.stopped
               }
-              Behaviors.stopped
           }
       }
 
