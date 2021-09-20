@@ -134,7 +134,7 @@ class Validator(appConfig: Config) {
               Behaviors.same
             case (context, Terminated(`anchorCollector`)) =>
               if (failFor.nonEmpty) {
-                println("Failing link validation for:\n" + failFor.mkString("\n"))
+                println("\n\nFailing link validation for (details above):\n" + failFor.mkString(" * ", "\n * ", ""))
                 CoordinatedShutdown(context.system).run(ValidatorErrorShutdownReason)
                 Behaviors.same
               } else {

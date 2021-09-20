@@ -7,7 +7,6 @@ import akka.http.scaladsl.model._
 import akka.http.scaladsl.model.headers.Location
 import akka.stream.OverflowStrategy
 import akka.stream.typed.scaladsl.{ ActorSink, ActorSource }
-
 import java.nio.file.Path
 import scala.util.{ Failure, Success }
 
@@ -183,7 +182,8 @@ object UrlTester {
         }
         .via(Http().superPool())
         .mapConcat {
-          case (Success(res), QueueUrl(origin, url, HttpMethods.HEAD)) if res.status == StatusCodes.MethodNotAllowed =>
+          case (Success(res), QueueUrl(origin, url, HttpMethods.HEAD))
+              if res.status == StatusCodes.MethodNotAllowed || res.status == StatusCodes.Forbidden =>
             context.self ! UrlRetry(origin, url, HttpMethods.GET)
             Seq.empty
           case (Success(res), QueueUrl(origin, url, method)) =>
