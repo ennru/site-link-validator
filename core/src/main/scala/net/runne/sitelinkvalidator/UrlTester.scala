@@ -52,17 +52,17 @@ object UrlSummary {
           else listFiles(files, rootDir, filesPerUrl)
         }
       } ++ {
-        if (failureResponses.nonEmpty)
-          Seq("", "## HTTP failure response") ++
-          failureResponses.flatMap { case (url, status, files) =>
-            Seq(s"`$url` status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
-          }
-        else Seq.empty
-      } ++ {
         if (redirectResponses.nonEmpty)
           Seq("", "## Redirected URLs") ++
           redirectResponses.flatMap { case ((url, location), files) =>
-            Seq(s"`$url` should be", s"`$location`") ++ listFiles(files, rootDir, filesPerUrl)
+            Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
+          }
+        else Seq.empty
+      } ++ {
+        if (failureResponses.nonEmpty)
+          Seq("", "## HTTP failure response") ++
+          failureResponses.flatMap { case (url, status, files) =>
+            Seq(s"$url status ${status}") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
       } ++ {
@@ -70,7 +70,7 @@ object UrlSummary {
         if (nonHttps.nonEmpty)
           Seq("", "## Non-https pages") ++
           nonHttps.flatMap { case (url, files) =>
-            Seq(s"`$url`") ++ listFiles(files, rootDir, filesPerUrl)
+            Seq(s"$url") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
       }
