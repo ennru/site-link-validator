@@ -1,7 +1,7 @@
 import sbt._
 
-val AkkaVersion = "2.6.16"
-val AkkaHttpVersion = "10.2.6"
+val AkkaVersion = "2.6.20"
+val AkkaHttpVersion = "10.2.10"
 
 lazy val `site-link-validator` = project.in(file(".")).aggregate(core).settings(publish / skip := true)
 
@@ -9,14 +9,14 @@ lazy val core = project.settings(
   name := "site-link-validator",
   run / javaOptions += "-Djavax.net.debug=ssl:handshake:verbose",
   libraryDependencies ++= Seq(
-    "org.jsoup" % "jsoup" % "1.14.2",
+    "org.jsoup" % "jsoup" % "1.14.3",
     "com.typesafe.akka" %% "akka-stream" % AkkaVersion,
     "com.typesafe.akka" %% "akka-http" % AkkaHttpVersion,
     "com.typesafe.akka" %% "akka-stream-testkit" % AkkaVersion % Test,
     "com.typesafe.akka" %% "akka-stream-typed" % AkkaVersion,
     "com.typesafe.akka" %% "akka-actor-typed" % AkkaVersion,
     "com.typesafe.akka" %% "akka-slf4j" % AkkaVersion,
-    "ch.qos.logback" % "logback-classic" % "1.2.6"))
+    "ch.qos.logback" % "logback-classic" % "1.2.11"))
 
 inThisBuild(
   Seq(
@@ -33,7 +33,7 @@ inThisBuild(
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
     scalafmtOnCompile := true,
     Test / testOptions += Tests.Argument("-oDF"),
-    scalaVersion := "2.13.6",
+    scalaVersion := "2.13.10",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
