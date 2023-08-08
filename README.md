@@ -1,5 +1,8 @@
 # Site Link Validator
 
+A fork of [ennru's site link validator](https://github.com/ennru/site-link-validator) which has been migrated
+to use [Apache Pekko](https://pekko.apache.org/) along with additional features
+
 Validates URLs in locally stored web pages to reduce broken links and links that point to a redirecting URL. For local pages the HTML anchors are validated.
 
 The tool generates a report identifying files and links that should be fixed.
