@@ -61,7 +61,11 @@ class Validator(appConfig: Config) {
     val linkMappings = mappings.map { c =>
       c.getString("prefix") -> c.getString("replace")
     }.toMap
-    HtmlFileReader.Config(rootDir, linkMappings, config.getStringList("ignore-prefixes").asScala.toList)
+    HtmlFileReader.Config(
+      rootDir,
+      linkMappings,
+      config.getStringList("ignore-files").asScala.toList,
+      config.getStringList("ignore-prefixes").asScala.toList)
   }
 
   val nonHttpsAccepted =
