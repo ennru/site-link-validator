@@ -18,7 +18,13 @@ object HtmlFileReader {
 
   final case class Link(s: String) extends FoundData
 
-  case class Config(rootDir: Path, linkMappings: Map[String, String], ignorePrefixes: Seq[String])
+  case class Config(
+      rootDir: Path,
+      linkMappings: Map[String, String],
+      // Local files that are 'ignored' are scanned for local
+      // references but not for remote URLs
+      ignoreFiles: Seq[String],
+      ignorePrefixes: Seq[String])
 
   def findLinks(
       config: Config,
@@ -31,7 +37,8 @@ object HtmlFileReader {
     if (file.toFile.isFile) {
       val document = Jsoup.parse(file.toFile, "UTF-8", "/")
       val linksInDocument = document.select("a[href]").asScala.toList
-      checkLinks(file, linksInDocument)
+      val followRemoteUrls = !config.ignoreFiles.map(config.rootDir.resolve).contains(file)
+      checkLinks(file, linksInDocument, followRemoteUrls)
 
       val anchors = document.select("a[name]").asScala.toList
       val ids = document.select("a[id]").asScala.toList
@@ -72,15 +79,15 @@ object HtmlFileReader {
         }
     }
 
-    def checkLinks(file: Path, linksInDocument: List[Element]) =
+    def checkLinks(file: Path, linksInDocument: List[Element], followRemoteUrls: Boolean) =
       linksInDocument
-        .map { element =>
+        .flatMap { element =>
           val href = element.attr("abs:href")
-          if (href.startsWith("http")) AbsoluteLink(href)
+          if (href.startsWith("http")) Option.when(followRemoteUrls)(AbsoluteLink(href))
           else {
             val href2 = element.attr("href")
-            if (href2.startsWith("#")) AnchorLink(href2.drop(1))
-            else Link(href2)
+            if (href2.startsWith("#")) Some(AnchorLink(href2.drop(1)))
+            else Some(Link(href2))
           }
         }
         .foreach {
