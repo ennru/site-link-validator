@@ -33,7 +33,7 @@ inThisBuild(
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
     scalafmtOnCompile := true,
     Test / testOptions += Tests.Argument("-oDF"),
-    scalaVersion := "2.13.10",
+    scalaVersion := "2.13.14",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
