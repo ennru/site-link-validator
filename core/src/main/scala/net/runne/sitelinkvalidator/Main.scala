@@ -95,11 +95,16 @@ class Validator(appConfig: Config) {
         context.watch(anchorCollector)
         val urlTester = context.spawn(UrlTester(), "urlTester")
         context.watch(urlTester)
-        val collector =
-          LinkCollector.stream(htmlFileReaderConfig, reporter, anchorCollector, urlTester)(context.system)
-        context.watch(collector)
 
-        collector ! LinkCollector.FileLocation(dir, file)
+        LinkCollector.stream(
+          LinkCollector.FileLocation(dir, file),
+          htmlFileReaderConfig,
+          reporter,
+          anchorCollector,
+          urlTester)
+        val replyTo = context.messageAdapter[UrlSummary.Report](summary => UrlReport(summary))
+        urlTester ! UrlTester.RequestReport(replyTo)
+
         Behaviors
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
@@ -124,10 +129,6 @@ class Validator(appConfig: Config) {
               Behaviors.same
           }
           .receiveSignal {
-            case (_, Terminated(`collector`)) =>
-              val replyTo = context.messageAdapter[UrlSummary.Report](summary => UrlReport(summary))
-              urlTester ! UrlTester.RequestReport(replyTo)
-              Behaviors.same
             case (_, Terminated(`urlTester`)) =>
               val replyTo = context.messageAdapter[Reporter.ReportSummary](summary => Report(summary))
               reporter ! Reporter.RequestReport(replyTo)

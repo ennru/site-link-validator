@@ -31,43 +31,32 @@ object HtmlFileReader {
       reporter: ActorRef[Reporter.Messages],
       anchorValidator: ActorRef[AnchorValidator.Messages],
       urlTester: ActorRef[UrlTester.Messages],
-      linkCollector: ActorRef[LinkCollector.FileLocation],
-      file: Path): Unit = {
-
-    if (file.toFile.isFile) {
-      val document = Jsoup.parse(file.toFile, "UTF-8", "/")
-      val linksInDocument = document.select("a[href]").asScala.toList
-      val followRemoteUrls = !config.ignoreFiles.map(config.rootDir.resolve).contains(file)
-      checkLinks(file, linksInDocument, followRemoteUrls)
-
-      val anchors = document.select("a[name]").asScala.toList
-      val ids = document.select("a[id]").asScala.toList
-      collectAnchors(file, anchors, ids)
-    } else {
-      reporter ! Reporter.FileErrored(file, new RuntimeException(s"$file is not a file"))
-    }
+      file: Path): List[LinkCollector.FileLocation] = {
 
     def collectAnchors(file: Path, anchors: List[Element], ids: List[Element]) = {
       val all = anchors.map(_.attr("name")).concat(ids.map(_.attr("id"))).filter(_.nonEmpty).toSet
       anchorValidator ! AnchorValidator.Anchor(file, all)
     }
 
-    def checkLocalLink(file: Path, link: String) = {
+    def checkLocalLink(file: Path, link: String): Option[LinkCollector.FileLocation] = {
       val (path, anchor) = splitLinkAnchor(link)
       if (path.nonEmpty) {
         val f =
           if (path.startsWith("/")) config.rootDir.resolve(path.drop(1))
           else file.getParent.resolve(path).normalize
-        linkCollector ! LinkCollector.FileLocation(file, f)
-        if (anchor.nonEmpty) {
+        if (anchor.nonEmpty)
           anchorValidator ! AnchorValidator.Link(file, f, anchor)
-        }
+        Some(LinkCollector.FileLocation(file, f))
       } else if (anchor.nonEmpty) {
         anchorValidator ! AnchorValidator.Link(file, file, anchor)
+        None
+      } else {
+        None
       }
     }
 
-    def applyLinkMappings(file: Path, link: String)(noMapping: => Unit) = {
+    def applyLinkMappings(file: Path, link: String)(
+        noMapping: => Option[LinkCollector.FileLocation]): Option[LinkCollector.FileLocation] = {
       config.linkMappings
         .collectFirst {
           case (prefix, path) if link.startsWith(prefix) =>
@@ -90,15 +79,17 @@ object HtmlFileReader {
             else Some(Link(href2))
           }
         }
-        .foreach {
+        .flatMap {
           case AbsoluteLink(link) if config.ignorePrefixes.forall(prefix => !link.startsWith(prefix)) =>
             applyLinkMappings(file, link) {
               val (path, _) = splitLinkAnchor(link)
               urlTester ! UrlTester.Url(file, path)
+              None
             }
 
           case AbsoluteLink(link) =>
-          // ignored
+            // ignored
+            None
 
           case Link(link) =>
             applyLinkMappings(file, link) {
@@ -107,6 +98,7 @@ object HtmlFileReader {
 
           case AnchorLink(anchor) =>
             anchorValidator ! AnchorValidator.Link(file, file, anchor)
+            None
         }
 
     def splitLinkAnchor(link: String) = {
@@ -117,6 +109,21 @@ object HtmlFileReader {
         (link.substring(0, p), link.substring(p + 1))
       }
 
+    }
+
+    if (file.toFile.isFile) {
+      val document = Jsoup.parse(file.toFile, "UTF-8", "/")
+      val linksInDocument = document.select("a[href]").asScala.toList
+      val followRemoteUrls = !config.ignoreFiles.map(config.rootDir.resolve).contains(file)
+      val links = checkLinks(file, linksInDocument, followRemoteUrls)
+
+      val anchors = document.select("a[name]").asScala.toList
+      val ids = document.select("a[id]").asScala.toList
+      collectAnchors(file, anchors, ids)
+      links
+    } else {
+      reporter ! Reporter.FileErrored(file, new RuntimeException(s"$file is not a file"))
+      List()
     }
   }
 }
