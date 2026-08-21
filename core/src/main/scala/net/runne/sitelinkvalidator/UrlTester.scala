@@ -58,7 +58,15 @@ object UrlSummary {
             Seq(s"$url should be", s"$location") ++ listFiles(files, rootDir, filesPerUrl)
           }
         else Seq.empty
-      } ++ {
+      } ++ printFailures(rootDir, nonHttpsAccepted, limit, filesPerUrl)
+    }
+
+    def printFailures(
+        rootDir: Path,
+        nonHttpsAccepted: Seq[String],
+        limit: Int = 30,
+        filesPerUrl: Int = 2): Seq[String] = {
+      {
         if (failureResponses.nonEmpty)
           Seq("", "## HTTP failure response") ++
           failureResponses.flatMap { case (url, status, files) =>

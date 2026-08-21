@@ -1,6 +1,8 @@
 package net.runne.sitelinkvalidator
 
-import java.nio.file.{ Path, Paths }
+import java.nio.charset.StandardCharsets.UTF_8
+import java.nio.file.StandardOpenOption.APPEND
+import java.nio.file.{ Files, Path, Paths }
 
 import akka.actor.{ BootstrapSetup, CoordinatedShutdown }
 import akka.actor.typed.scaladsl.Behaviors
@@ -11,15 +13,16 @@ import scala.jdk.CollectionConverters._
 
 object Main extends App {
 
-  if (args.length == 1 && !args(0).startsWith("--")) {
-    val f = Paths.get(args(0)).toFile
-    if (f.isFile) {
-      new Validator(ConfigFactory.parseFile(f)).report()
+  if (args.length >= 1 && !args(0).startsWith("--")) {
+    val config = Paths.get(args(0)).toFile
+    if (config.isFile) {
+      val output = Option.when(args.length == 2)(Paths.get(args(1)))
+      new Validator(ConfigFactory.parseFile(config)).report(output)
     } else {
-      println(s"can't read [${f.toString}]")
+      println(s"can't read config [${config.toString}]")
     }
   } else {
-    println("specify a HOCON file with a section `site-link-validator`")
+    println("specify a HOCON file with a section `site-link-validator` and an optional output file")
   }
 }
 
@@ -71,7 +74,7 @@ class Validator(appConfig: Config) {
   val nonHttpsAccepted =
     (config.getStringList("non-https-accepted").asScala ++ config.getStringList("non-https-whitelist").asScala).toSeq
 
-  def report(): Unit = report(rootDir, startFile)
+  def report(output: Option[Path]): Unit = report(rootDir, startFile, output)
 
   private var failFor = Vector.empty[String]
 
@@ -79,12 +82,15 @@ class Validator(appConfig: Config) {
     Console.print(s)
   }
 
-  def report(dir: Path, initialFile: String): Unit = {
-    val file = dir.resolve(initialFile)
+  def report(rootDir: Path, initialFile: String, outputFile: Option[Path]): Unit = {
+    val file = rootDir.resolve(initialFile)
     val exists = file.toFile.exists()
-    require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$dir, file=$initialFile)")
+    require(exists, s"${file.toAbsolutePath.toString} does not exist (got dir=$rootDir, file=$initialFile)")
     println(
-      s"checking links starting from [${file.toAbsolutePath.toString}] with root [${dir.toAbsolutePath.toString}]")
+      s"checking links starting from [${file.toAbsolutePath.toString}] with root [${rootDir.toAbsolutePath.toString}]")
+    outputFile.foreach(o => {
+      Files.write(o, s"Checking links for $initialFile\n\n```\n".getBytes(UTF_8))
+    })
     val ignoreMissingLocalFileFilter = config.getString("ignore-missing-local-files-regex").r
 
     def main(): Behavior[Messages] =
@@ -97,7 +103,7 @@ class Validator(appConfig: Config) {
         context.watch(urlTester)
 
         LinkCollector.stream(
-          LinkCollector.FileLocation(dir, file),
+          LinkCollector.FileLocation(rootDir, file),
           htmlFileReaderConfig,
           reporter,
           anchorCollector,
@@ -109,23 +115,35 @@ class Validator(appConfig: Config) {
           .receiveMessage[Messages] {
             case UrlReport(summary) =>
               print(summary.print(rootDir, nonHttpsAccepted).mkString("\n"))
-              if (failForFailureResponse && summary.hasFailures) {
+              val hasFailureResponses = failForFailureResponse && summary.hasFailures
+              if (hasFailureResponses) {
                 failFor = failFor :+ "Failure responses found."
               }
-              if (failForNonHttps && summary.nonHttpsUrls(nonHttpsAccepted).nonEmpty) {
+              val hasHttpsFailures = failForNonHttps && summary.nonHttpsUrls(nonHttpsAccepted).nonEmpty
+              if (hasHttpsFailures) {
                 failFor = failFor :+ "Non-https URLs found (configure `non-https-accepted` if needed)."
+              }
+              if (hasFailureResponses || hasHttpsFailures) {
+                outputFile.foreach(o => {
+                  Files
+                    .write(o, summary.printFailures(rootDir, nonHttpsAccepted).mkString("\n").getBytes(UTF_8), APPEND)
+                })
               }
               Behaviors.same
 
             case Report(reportSummary) =>
-              print(reportSummary.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
+              val txt = reportSummary.report(rootDir, ignoreMissingLocalFileFilter).mkString("\n")
+              print(txt)
               if (failForLocalFailure && reportSummary.hasFailures) {
                 failFor = failFor :+ "Local errors encountered."
+                outputFile.foreach(o => {
+                  Files.write(o, txt.getBytes(UTF_8), APPEND)
+                })
               }
               Behaviors.same
 
             case AnchorReport(report) =>
-              print(report.report(dir, ignoreMissingLocalFileFilter).mkString("\n"))
+              print(report.report(rootDir, ignoreMissingLocalFileFilter).mkString("\n"))
               Behaviors.same
           }
           .receiveSignal {
@@ -138,8 +156,16 @@ class Validator(appConfig: Config) {
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
             case (context, Terminated(`anchorCollector`)) =>
+              outputFile.foreach(o => {
+                Files.write(o, "\n```\n\n".getBytes(UTF_8), APPEND)
+              })
               if (failFor.nonEmpty) {
-                println("\n\nFailing link validation for (details above):\n" + failFor.mkString(" * ", "\n * ", ""))
+                val finalSummary =
+                  "\n\nFailing link validation for (details above):\n" + failFor.mkString("\n* ", "\n* ", "")
+                println(finalSummary)
+                outputFile.foreach(o => {
+                  Files.write(o, finalSummary.getBytes(UTF_8), APPEND)
+                })
                 CoordinatedShutdown(context.system).run(ValidatorErrorShutdownReason)
                 Behaviors.same
               } else {

@@ -63,25 +63,25 @@ object Reporter {
       }
     }
 
-    def report(dir: Path, ignoreMissingLocalFileFilter: Regex): Seq[String] = {
+    def report(rootDir: Path, ignoreMissingLocalFileFilter: Regex): Seq[String] = {
       {
         if (errors.nonEmpty)
           Seq("", "## Errors") ++
-          errorReport(dir).map { case (file, error) =>
+          errorReport(rootDir).map { case (file, error) =>
             s"$file triggered $error"
           }
         else Seq.empty
       } ++ {
         if (missing.nonEmpty)
           Seq("", "## Missing local files") ++
-          missingReport(dir, ignoreMissingLocalFileFilter).map { case (file, referrer) =>
+          missingReport(rootDir, ignoreMissingLocalFileFilter).map { case (file, referrer) =>
             s"$file referenced from $referrer"
           }
         else Seq.empty
       } ++ {
         if (urlFailures.nonEmpty)
           Seq("", "## URL Errors") ++
-          urlFailureReport(dir)
+          urlFailureReport(rootDir)
         else Seq.empty
       }
     }
