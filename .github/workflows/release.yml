@@ -11,10 +11,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up JDK 11
+      - name: Set up JDK 11 and sbt
         uses: coursier/setup-action@v3
         with:
           jvm: temurin:11
+          apps: sbt
 
       - name: Import GPG key
         uses: crazy-max/ghaction-import-gpg@v7

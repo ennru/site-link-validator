@@ -20,10 +20,11 @@ jobs:
       - name: Cache Coursier cache
         uses: coursier/cache-action@v8
 
-      - name: Set up JDK 11
+      - name: Set up JDK 11 and sbt
         uses: coursier/setup-action@v3
         with:
           jvm: temurin:11
+          apps: sbt
 
       - name: scalafmtCheckAll
         run: sbt --client scalafmtCheckAll
