@@ -155,7 +155,7 @@ class Validator(appConfig: Config) {
               val replyTo = context.messageAdapter[AnchorValidator.Report](summary => AnchorReport(summary))
               anchorCollector ! AnchorValidator.RequestReport(replyTo)
               Behaviors.same
-            case (context, Terminated(`anchorCollector`)) =>
+            case (ctx, Terminated(`anchorCollector`)) =>
               outputFile.foreach(o => {
                 Files.write(o, "\n```\n\n".getBytes(UTF_8), APPEND)
               })
@@ -166,7 +166,7 @@ class Validator(appConfig: Config) {
                 outputFile.foreach(o => {
                   Files.write(o, finalSummary.getBytes(UTF_8), APPEND)
                 })
-                CoordinatedShutdown(context.system).run(ValidatorErrorShutdownReason)
+                CoordinatedShutdown(ctx.system).run(ValidatorErrorShutdownReason)
                 Behaviors.same
               } else {
                 Behaviors.stopped

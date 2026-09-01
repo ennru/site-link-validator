@@ -7,6 +7,7 @@ lazy val `site-link-validator` = project.in(file(".")).aggregate(core).settings(
 
 lazy val core = project.settings(
   name := "site-link-validator",
+  description := "A tool that crawls a website and validates internal and external links.",
   run / javaOptions += "-Djavax.net.debug=ssl:handshake:verbose",
   libraryDependencies ++= Seq(
     "org.jsoup" % "jsoup" % "1.14.3",
@@ -31,9 +32,10 @@ inThisBuild(
       "Contributors",
       "https://github.com/ennru/site-link-validator/graphs/contributors",
       url("https://github.com/ennru/site-link-validator/graphs/contributors")),
+    sonatypeCredentialHost := xerial.sbt.Sonatype.sonatypeCentralHost,
     scalafmtOnCompile := true,
     Test / testOptions += Tests.Argument("-oDF"),
-    scalaVersion := "2.13.14",
+    scalaVersion := "2.13.16",
     scalacOptions ++= Seq(
       "-encoding",
       "UTF-8",
@@ -42,4 +44,4 @@ inThisBuild(
       "-deprecation",
       "-Xlint",
       "-Ywarn-dead-code",
-      "-target:jvm-1.8")))
+      "-release:8")))
